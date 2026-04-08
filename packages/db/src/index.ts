@@ -16,6 +16,7 @@ export type Lead = {
   name: string;
   phone: string;
   comment: string;
+  appointmentAt: string | null;
   status: LeadStatus;
   createdAt: string;
   updatedAt: string;
@@ -27,6 +28,7 @@ type CreateLeadInput = {
   name: string;
   phone: string;
   comment: string;
+  appointmentAt?: string | null;
 };
 
 type DatabaseShape = {
@@ -66,7 +68,15 @@ ensureDatabase();
 
 function readDatabase(): DatabaseShape {
   ensureDatabase();
-  return JSON.parse(fs.readFileSync(databasePath, "utf-8")) as DatabaseShape;
+  const raw = JSON.parse(fs.readFileSync(databasePath, "utf-8")) as DatabaseShape;
+
+  return {
+    notes: raw.notes ?? [],
+    leads: (raw.leads ?? []).map((lead) => ({
+      ...lead,
+      appointmentAt: lead.appointmentAt ?? null,
+    })),
+  };
 }
 
 function writeDatabase(data: DatabaseShape) {
@@ -91,6 +101,7 @@ function listLeadNotes(leadId: string, data: DatabaseShape): LeadNote[] {
 function mapLead(row: Omit<Lead, "notes">, data: DatabaseShape): Lead {
   return {
     ...row,
+    appointmentAt: row.appointmentAt ?? null,
     notes: listLeadNotes(row.id, data),
   };
 }
@@ -120,6 +131,7 @@ export function createLead(input: CreateLeadInput): Lead {
     name: input.name,
     phone: input.phone,
     comment: input.comment,
+    appointmentAt: input.appointmentAt ?? null,
     status: "NEW",
     createdAt: timestamp,
     updatedAt: timestamp,
