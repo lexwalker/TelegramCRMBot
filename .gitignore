@@ -1,0 +1,16 @@
+node_modules
+.next
+dist
+coverage
+.turbo
+.codex-logs
+.env
+.env.*
+**/.env
+**/.env.*
+.env.local
+.env.*.local
+apps/web/.next
+data/db.json
+**/data/db.json
+packages/db/prisma/test-write.txt

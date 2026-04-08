@@ -1,0 +1,16 @@
+{
+  "name": "crm-bot",
+  "private": true,
+  "packageManager": "pnpm@10.33.0",
+  "scripts": {
+    "dev": "pnpm --filter @crm-bot/db run build && concurrently -n web,bot -c cyan,green \"pnpm --filter @crm-bot/web run dev\" \"pnpm --filter @crm-bot/bot run dev\"",
+    "dev:web": "pnpm --filter @crm-bot/web run dev",
+    "dev:bot": "pnpm --filter @crm-bot/db run build && pnpm --filter @crm-bot/bot run dev",
+    "build": "pnpm --filter @crm-bot/db run build && pnpm --filter @crm-bot/web run build && pnpm --filter @crm-bot/bot run build",
+    "db:build": "pnpm --filter @crm-bot/db run build",
+    "db:init": "pnpm --filter @crm-bot/db run init"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}
