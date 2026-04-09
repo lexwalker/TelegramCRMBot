@@ -74,8 +74,11 @@ const dictionaries = {
     },
     status: {
       NEW: "Новая",
+      CONFIRMED: "Подтверждена",
       IN_PROGRESS: "В работе",
       DONE: "Готово",
+      CANCELLED: "Отменена",
+      NO_SHOW: "Не пришел",
     },
     home: {
       eyebrow: "Обзор",
@@ -274,8 +277,11 @@ const dictionaries = {
     },
     status: {
       NEW: "New",
+      CONFIRMED: "Confirmed",
       IN_PROGRESS: "In progress",
       DONE: "Done",
+      CANCELLED: "Cancelled",
+      NO_SHOW: "No-show",
     },
     home: {
       eyebrow: "Overview",

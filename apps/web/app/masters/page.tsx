@@ -3,10 +3,11 @@ import {
   createServiceAction,
   deleteMasterAction,
   deleteServiceAction,
+  updateBookingSettingsAction,
   updateMasterAction,
   updateServiceAction,
 } from "../leads/actions";
-import { listLeads, listMasters, listServices } from "../../lib/leads";
+import { getBookingSettings, listLeads, listMasters, listServices } from "../../lib/leads";
 import { getCurrentLocale, getDictionary, getLocaleTag } from "../../lib/i18n";
 
 export const dynamic = "force-dynamic";
@@ -57,10 +58,11 @@ export default async function MastersPage({ searchParams }: MastersPageProps) {
   const locale = await getCurrentLocale();
   const dict = getDictionary(locale);
   const resolvedSearchParams = (await searchParams) ?? {};
-  const [masters, leads, services] = await Promise.all([
+  const [masters, leads, services, bookingSettings] = await Promise.all([
     listMasters(),
     listLeads(),
     listServices(),
+    getBookingSettings(),
   ]);
   const activeMasters = masters.filter((master) => master.isActive).length;
   const activeServices = services.filter((service) => service.isActive).length;
@@ -120,6 +122,34 @@ export default async function MastersPage({ searchParams }: MastersPageProps) {
         : "Could not update services. Please try again.",
   };
 
+  const bookingTexts = {
+    eyebrow: locale === "ru" ? "Правила записи" : "Booking rules",
+    title: locale === "ru" ? "Буфер перед записью" : "Lead time buffer",
+    description:
+      locale === "ru"
+        ? "Минимальное время между текущим моментом и доступным слотом. Если поставить 60 минут, клиент не увидит запись раньше чем через час."
+        : "Minimum time between now and the next available slot. If you set 60 minutes, clients will only see slots at least one hour ahead.",
+    label: locale === "ru" ? "Минимальный буфер, минут" : "Minimum buffer, minutes",
+    hint:
+      locale === "ru"
+        ? "Подходит для случаев, когда бизнесу нужно время на подтверждение или подготовку."
+        : "Useful when the business needs time to confirm or prepare before the visit.",
+    save: locale === "ru" ? "Сохранить буфер" : "Save buffer",
+  };
+
+  const bookingMessages: Record<string, string> = {
+    booking_settings_updated:
+      locale === "ru" ? "Буфер перед записью сохранен" : "Booking buffer saved",
+    booking_lead_time_invalid:
+      locale === "ru"
+        ? "Буфер должен быть целым числом минут, не меньше нуля"
+        : "Buffer must be a whole number of minutes, zero or greater",
+    booking_settings_unknown:
+      locale === "ru"
+        ? "Не удалось сохранить настройки записи. Попробуйте еще раз."
+        : "Could not save booking settings. Please try again.",
+  };
+
   const stats = [
     {
       label: dict.masters.metrics.total[0],
@@ -153,6 +183,7 @@ export default async function MastersPage({ searchParams }: MastersPageProps) {
           "master_unknown"
       ] ??
       serviceMessages[resolvedSearchParams.error_code] ??
+      bookingMessages[resolvedSearchParams.error_code] ??
       dict.masters.messages.master_unknown
     : null;
   const successText = resolvedSearchParams.success_code
@@ -161,6 +192,7 @@ export default async function MastersPage({ searchParams }: MastersPageProps) {
           "master_updated"
       ] ??
       serviceMessages[resolvedSearchParams.success_code] ??
+      bookingMessages[resolvedSearchParams.success_code] ??
       dict.masters.messages.master_updated
     : null;
   const mastersSectionText =
@@ -251,6 +283,69 @@ export default async function MastersPage({ searchParams }: MastersPageProps) {
             >
               {dict.masters.addButton}
             </button>
+          </form>
+        </section>
+
+        <section className="rounded-[2rem] border border-[color:var(--border)] bg-[color:var(--surface)] p-8 shadow-[var(--shadow-md)]">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="text-sm uppercase tracking-[0.24em] text-[color:var(--muted)]">
+                {bookingTexts.eyebrow}
+              </p>
+              <h2
+                className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-[color:var(--foreground)]"
+                style={{ fontFamily: "var(--font-heading)" }}
+              >
+                {bookingTexts.title}
+              </h2>
+            </div>
+            <p className="max-w-xl text-sm leading-6 text-[color:var(--foreground-soft)]">
+              {bookingTexts.description}
+            </p>
+          </div>
+
+          <form
+            action={updateBookingSettingsAction}
+            className="mt-6 grid gap-4 md:grid-cols-[minmax(0,1fr)_220px_auto]"
+          >
+            <div>
+              <label className="block text-sm text-[color:var(--muted)]">
+                {bookingTexts.label}
+              </label>
+              <input
+                type="number"
+                min="0"
+                step="1"
+                name="minLeadTimeMinutes"
+                required
+                defaultValue={bookingSettings.minLeadTimeMinutes}
+                className="mt-2 w-full rounded-[1.3rem] border border-[color:var(--border)] bg-[color:var(--surface-strong)] px-4 py-3 outline-none transition focus:border-[color:var(--accent)]"
+              />
+              <p className="mt-2 text-sm leading-6 text-[color:var(--foreground-soft)]">
+                {bookingTexts.hint}
+              </p>
+            </div>
+
+            <div className="rounded-[1.5rem] border border-[color:var(--border-soft)] bg-[color:var(--surface-strong)] px-5 py-4">
+              <p className="text-[11px] uppercase tracking-[0.2em] text-[color:var(--muted)]">
+                {locale === "ru" ? "Сейчас действует" : "Current value"}
+              </p>
+              <p
+                className="mt-3 text-3xl font-semibold tracking-[-0.04em] text-[color:var(--foreground)]"
+                style={{ fontFamily: "var(--font-heading)" }}
+              >
+                {bookingSettings.minLeadTimeMinutes} {locale === "ru" ? "мин" : "min"}
+              </p>
+            </div>
+
+            <div className="flex items-end">
+              <button
+                type="submit"
+                className="w-full rounded-full bg-[color:var(--accent)] px-6 py-3 text-sm font-medium text-[color:var(--accent-foreground)] transition hover:bg-[color:var(--accent-strong)]"
+              >
+                {bookingTexts.save}
+              </button>
+            </div>
           </form>
         </section>
 

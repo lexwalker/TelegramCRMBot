@@ -1,7 +1,13 @@
 ﻿import fs from "node:fs";
 import path from "node:path";
 
-export type LeadStatus = "NEW" | "IN_PROGRESS" | "DONE";
+export type LeadStatus =
+  | "NEW"
+  | "CONFIRMED"
+  | "IN_PROGRESS"
+  | "DONE"
+  | "CANCELLED"
+  | "NO_SHOW";
 export type LeadHistoryAction =
   | "lead_created"
   | "status_changed"
@@ -10,8 +16,13 @@ export type LeadHistoryAction =
   | "appointment_cancelled"
   | "master_changed"
   | "service_changed"
-  | "price_updated";
+  | "price_updated"
+  | "reminder_sent";
 export type LeadHistoryActor = "crm" | "bot" | "system";
+export type ReminderKind = "day_before" | "same_day";
+export type BookingSettings = {
+  minLeadTimeMinutes: number;
+};
 
 export type MasterScheduleDay = {
   dayOfWeek: number;
@@ -63,7 +74,12 @@ type LeadRecord = {
   masterId: string | null;
   serviceId: string | null;
   finalPrice: number | null;
+  confirmedAt: string | null;
+  cancelledAt: string | null;
+  noShowAt: string | null;
   completedAt: string | null;
+  reminderDayBeforeSentAt: string | null;
+  reminderSameDaySentAt: string | null;
   status: LeadStatus;
   createdAt: string;
   updatedAt: string;
@@ -109,6 +125,7 @@ type DatabaseShape = {
   history: LeadHistoryEntry[];
   masters: Master[];
   services: Service[];
+  settings: BookingSettings;
 };
 
 type AppointmentAvailabilityOptions = {
@@ -119,9 +136,18 @@ type FindMasterOptions = AppointmentAvailabilityOptions & {
   excludedMasterIds?: string[];
 };
 
+export type DueReminder = {
+  lead: Lead;
+  kind: ReminderKind;
+};
+
 const DATABASE_URL = process.env.DATABASE_URL ?? "file:./data/db.json";
 const DEFAULT_TIME_INCREMENT_MINUTES = 60;
 const DEFAULT_SERVICE_DURATION_MINUTES = 60;
+const DEFAULT_BOOKING_SETTINGS: BookingSettings = {
+  minLeadTimeMinutes: 0,
+};
+const ACTIVE_BOOKING_STATUSES: LeadStatus[] = ["NEW", "CONFIRMED", "IN_PROGRESS"];
 const DEFAULT_MASTERS: Master[] = [
   {
     id: "master_1",
@@ -190,6 +216,7 @@ const emptyDatabase: DatabaseShape = {
     weeklySchedule: master.weeklySchedule.map((day) => ({ ...day })),
   })),
   services: DEFAULT_SERVICES.map((service) => ({ ...service })),
+  settings: { ...DEFAULT_BOOKING_SETTINGS },
 };
 
 export function ensureDatabase() {
@@ -241,6 +268,23 @@ function formatPriceLabel(value: number | null) {
   return value == null ? "не указана" : `${value} ₽`;
 }
 
+function formatStatusLabel(status: LeadStatus) {
+  switch (status) {
+    case "CONFIRMED":
+      return "CONFIRMED";
+    case "IN_PROGRESS":
+      return "IN_PROGRESS";
+    case "DONE":
+      return "DONE";
+    case "CANCELLED":
+      return "CANCELLED";
+    case "NO_SHOW":
+      return "NO_SHOW";
+    default:
+      return "NEW";
+  }
+}
+
 function getActorLabel(actor: LeadHistoryActor) {
   if (actor === "bot") {
     return "Бот";
@@ -255,6 +299,29 @@ function getActorLabel(actor: LeadHistoryActor) {
 
 function getWeekday(dateKey: string) {
   return new Date(`${dateKey}T12:00:00+03:00`).getUTCDay();
+}
+
+function isLeadBlockingSlot(lead: LeadRecord) {
+  return Boolean(lead.appointmentAt && ACTIVE_BOOKING_STATUSES.includes(lead.status));
+}
+
+function normalizeBookingSettings(settings: BookingSettings | undefined): BookingSettings {
+  const minLeadTimeMinutes =
+    typeof settings?.minLeadTimeMinutes === "number" &&
+    Number.isFinite(settings.minLeadTimeMinutes) &&
+    settings.minLeadTimeMinutes >= 0
+      ? settings.minLeadTimeMinutes
+      : DEFAULT_BOOKING_SETTINGS.minLeadTimeMinutes;
+
+  return {
+    minLeadTimeMinutes,
+  };
+}
+
+function isAppointmentInFuture(appointmentAt: string, minLeadMinutes: number) {
+  const appointmentTimestamp = new Date(appointmentAt).getTime();
+  const minAllowedTimestamp = Date.now() + minLeadMinutes * 60 * 1000;
+  return appointmentTimestamp > minAllowedTimestamp;
 }
 
 function getActiveMastersFromData(data: DatabaseShape) {
@@ -349,6 +416,7 @@ function cloneData(data: DatabaseShape): DatabaseShape {
     })),
     services: data.services.map((service) => ({ ...service })),
     leads: data.leads.map((lead) => ({ ...lead })),
+    settings: { ...data.settings },
   };
 }
 
@@ -397,6 +465,10 @@ function getAvailableMastersForSlot(
   data: DatabaseShape,
   options: FindMasterOptions = {},
 ) {
+  if (!isAppointmentInFuture(appointmentAt, data.settings.minLeadTimeMinutes)) {
+    return [];
+  }
+
   const excludedMasterIds = new Set(options.excludedMasterIds ?? []);
   const activeMasters = getActiveMastersFromData(data).filter(
     (master) => !excludedMasterIds.has(master.id),
@@ -415,6 +487,7 @@ function getAvailableMastersForSlot(
         lead.id === options.excludeLeadId ||
         lead.masterId !== master.id ||
         !lead.appointmentAt ||
+        !isLeadBlockingSlot(lead) ||
         getDateKeyFromIso(lead.appointmentAt) !== dateKey
       ) {
         return false;
@@ -440,7 +513,11 @@ function getFirstFreeMasterForSlot(
 }
 
 function getLeadOverlappingSlot(lead: LeadRecord, dateKey: string, slotStartMinutes: number, data: DatabaseShape) {
-  if (!lead.appointmentAt || getDateKeyFromIso(lead.appointmentAt) !== dateKey) {
+  if (
+    !lead.appointmentAt ||
+    !isLeadBlockingSlot(lead) ||
+    getDateKeyFromIso(lead.appointmentAt) !== dateKey
+  ) {
     return false;
   }
 
@@ -500,6 +577,7 @@ function normalizeData(raw: DatabaseShape) {
     history: raw.history ?? [],
     masters,
     services,
+    settings: normalizeBookingSettings(raw.settings),
   };
   let changed =
     !raw.masters ||
@@ -522,10 +600,24 @@ function normalizeData(raw: DatabaseShape) {
         typeof lead.finalPrice === "number" && Number.isFinite(lead.finalPrice)
           ? lead.finalPrice
           : null,
+      confirmedAt:
+        lead.status === "CONFIRMED"
+          ? lead.confirmedAt ?? lead.updatedAt
+          : null,
+      cancelledAt:
+        lead.status === "CANCELLED"
+          ? lead.cancelledAt ?? lead.updatedAt
+          : null,
+      noShowAt:
+        lead.status === "NO_SHOW"
+          ? lead.noShowAt ?? lead.updatedAt
+          : null,
       completedAt:
         lead.status === "DONE"
           ? lead.completedAt ?? lead.updatedAt
           : null,
+      reminderDayBeforeSentAt: lead.reminderDayBeforeSentAt ?? null,
+      reminderSameDaySentAt: lead.reminderSameDaySentAt ?? null,
     };
 
     if (normalizedLead.serviceId !== lead.serviceId) {
@@ -533,6 +625,26 @@ function normalizeData(raw: DatabaseShape) {
     }
 
     if (normalizedLead.completedAt !== (lead.completedAt ?? null)) {
+      changed = true;
+    }
+
+    if (normalizedLead.confirmedAt !== (lead.confirmedAt ?? null)) {
+      changed = true;
+    }
+
+    if (normalizedLead.cancelledAt !== (lead.cancelledAt ?? null)) {
+      changed = true;
+    }
+
+    if (normalizedLead.noShowAt !== (lead.noShowAt ?? null)) {
+      changed = true;
+    }
+
+    if (normalizedLead.reminderDayBeforeSentAt !== (lead.reminderDayBeforeSentAt ?? null)) {
+      changed = true;
+    }
+
+    if (normalizedLead.reminderSameDaySentAt !== (lead.reminderSameDaySentAt ?? null)) {
       changed = true;
     }
 
@@ -583,6 +695,7 @@ function normalizeData(raw: DatabaseShape) {
       leads,
       masters,
       services,
+      settings: normalizeBookingSettings(raw.settings),
     } satisfies DatabaseShape,
   };
 }
@@ -792,6 +905,21 @@ export function listServices(): Service[] {
   return [...data.services].sort((a, b) => a.sortOrder - b.sortOrder);
 }
 
+export function getBookingSettings(): BookingSettings {
+  return { ...readDatabase().settings };
+}
+
+export function updateBookingSettings(input: BookingSettings): BookingSettings {
+  if (!Number.isFinite(input.minLeadTimeMinutes) || input.minLeadTimeMinutes < 0) {
+    throw new Error("Booking lead time is invalid");
+  }
+
+  const data = readDatabase();
+  data.settings = normalizeBookingSettings(input);
+  writeDatabase(data);
+  return { ...data.settings };
+}
+
 export function listActiveServices(): Service[] {
   return getActiveServicesFromData(readDatabase());
 }
@@ -964,6 +1092,10 @@ export function createLead(input: CreateLeadInput): Lead {
     throw new Error("Service is not available");
   }
 
+  if (input.appointmentAt && !isAppointmentInFuture(input.appointmentAt, data.settings.minLeadTimeMinutes)) {
+    throw new Error("Appointment slot is in the past");
+  }
+
   const assignedMaster = input.appointmentAt
     ? getFirstFreeMasterForSlot(input.appointmentAt, serviceId, data, { excludeLeadId: null })
     : null;
@@ -982,7 +1114,12 @@ export function createLead(input: CreateLeadInput): Lead {
     masterId: assignedMaster?.id ?? null,
     serviceId,
     finalPrice: null,
+    confirmedAt: null,
+    cancelledAt: null,
+    noShowAt: null,
     completedAt: null,
+    reminderDayBeforeSentAt: null,
+    reminderSameDaySentAt: null,
     status: "NEW",
     createdAt: timestamp,
     updatedAt: timestamp,
@@ -1018,6 +1155,7 @@ export function updateLeadStatus(
   const actor = options.actor ?? "crm";
   const previousStatus = lead.status;
   const previousPrice = lead.finalPrice;
+  const previousAppointmentAt = lead.appointmentAt;
 
   lead.status = status;
   lead.updatedAt = timestamp;
@@ -1035,13 +1173,34 @@ export function updateLeadStatus(
     lead.completedAt = null;
   }
 
+  lead.confirmedAt = status === "CONFIRMED" ? timestamp : null;
+  lead.cancelledAt = status === "CANCELLED" ? timestamp : null;
+  lead.noShowAt = status === "NO_SHOW" ? timestamp : null;
+
+  if (status === "CANCELLED") {
+    lead.appointmentAt = null;
+    lead.masterId = null;
+    lead.reminderDayBeforeSentAt = null;
+    lead.reminderSameDaySentAt = null;
+  }
+
   if (previousStatus !== status) {
     addHistoryEntry(
       data,
       lead.id,
       "status_changed",
       actor,
-      `${getActorLabel(actor)} изменил статус: ${previousStatus} -> ${status}`,
+      `${getActorLabel(actor)} изменил статус: ${formatStatusLabel(previousStatus)} -> ${formatStatusLabel(status)}`,
+    );
+  }
+
+  if (status === "CANCELLED" && previousAppointmentAt) {
+    addHistoryEntry(
+      data,
+      lead.id,
+      "appointment_cancelled",
+      actor,
+      `${getActorLabel(actor)} отменил запись (${formatAppointmentLabel(previousAppointmentAt)})`,
     );
   }
 
@@ -1107,6 +1266,10 @@ export function updateLeadAppointment(
     throw new Error("Lead not found");
   }
 
+  if (appointmentAt && !isAppointmentInFuture(appointmentAt, data.settings.minLeadTimeMinutes)) {
+    throw new Error("Appointment slot is in the past");
+  }
+
   const assignedMaster = appointmentAt
     ? getFirstFreeMasterForSlot(appointmentAt, lead.serviceId, data, { excludeLeadId: leadId })
     : null;
@@ -1116,10 +1279,38 @@ export function updateLeadAppointment(
   }
 
   const previousAppointmentAt = lead.appointmentAt;
+  const previousStatus = lead.status;
 
   lead.appointmentAt = appointmentAt;
   lead.masterId = assignedMaster?.id ?? null;
   lead.updatedAt = timestamp;
+  lead.completedAt = null;
+
+  if (appointmentAt) {
+    lead.status = "NEW";
+    lead.confirmedAt = null;
+    lead.cancelledAt = null;
+    lead.noShowAt = null;
+    lead.reminderDayBeforeSentAt = null;
+    lead.reminderSameDaySentAt = null;
+  } else {
+    lead.status = "CANCELLED";
+    lead.confirmedAt = null;
+    lead.cancelledAt = timestamp;
+    lead.noShowAt = null;
+    lead.reminderDayBeforeSentAt = null;
+    lead.reminderSameDaySentAt = null;
+  }
+
+  if (previousStatus !== lead.status) {
+    addHistoryEntry(
+      data,
+      leadId,
+      "status_changed",
+      options.actor ?? "crm",
+      `${getActorLabel(options.actor ?? "crm")} изменил статус: ${formatStatusLabel(previousStatus)} -> ${formatStatusLabel(lead.status)}`,
+    );
+  }
 
   if (previousAppointmentAt !== appointmentAt) {
     addHistoryEntry(
@@ -1245,7 +1436,12 @@ export function getLatestLeadByTelegramId(telegramId: string): Lead | null {
 export function getLatestBookedLeadByTelegramId(telegramId: string): Lead | null {
   const data = readDatabase();
   const lead = [...data.leads]
-    .filter((item) => item.telegramId === telegramId && item.appointmentAt)
+    .filter(
+      (item) =>
+        item.telegramId === telegramId &&
+        item.appointmentAt &&
+        ACTIVE_BOOKING_STATUSES.includes(item.status),
+    )
     .sort((a, b) => {
       const aTime = a.appointmentAt ?? a.updatedAt;
       const bTime = b.appointmentAt ?? b.updatedAt;
@@ -1253,6 +1449,77 @@ export function getLatestBookedLeadByTelegramId(telegramId: string): Lead | null
     })[0];
 
   return lead ? mapLead(lead, data) : null;
+}
+
+export function listDueReminders(date = new Date()): DueReminder[] {
+  const data = readDatabase();
+  const now = date.getTime();
+
+  return data.leads
+    .filter(
+      (lead) =>
+        Boolean(lead.telegramId) &&
+        Boolean(lead.appointmentAt) &&
+        ["NEW", "CONFIRMED"].includes(lead.status),
+    )
+    .sort((left, right) => (left.appointmentAt ?? "").localeCompare(right.appointmentAt ?? ""))
+    .reduce<DueReminder[]>((items, lead) => {
+      const appointmentAt = new Date(lead.appointmentAt as string).getTime();
+      const diffMinutes = Math.round((appointmentAt - now) / 60000);
+
+      if (
+        diffMinutes > 0 &&
+        diffMinutes <= 120 &&
+        !lead.reminderSameDaySentAt
+      ) {
+        items.push({ lead: mapLead(lead, data), kind: "same_day" });
+        return items;
+      }
+
+      if (
+        diffMinutes > 120 &&
+        diffMinutes <= 24 * 60 &&
+        !lead.reminderDayBeforeSentAt
+      ) {
+        items.push({ lead: mapLead(lead, data), kind: "day_before" });
+      }
+
+      return items;
+    }, []);
+}
+
+export function markReminderSent(
+  leadId: string,
+  kind: ReminderKind,
+  options: UpdateLeadOptions = {},
+) {
+  const data = readDatabase();
+  const lead = data.leads.find((item) => item.id === leadId);
+
+  if (!lead) {
+    throw new Error("Lead not found");
+  }
+
+  const actor = options.actor ?? "system";
+  const timestamp = nowIso();
+
+  if (kind === "day_before") {
+    lead.reminderDayBeforeSentAt = timestamp;
+  } else {
+    lead.reminderSameDaySentAt = timestamp;
+  }
+
+  lead.updatedAt = timestamp;
+  addHistoryEntry(
+    data,
+    leadId,
+    "reminder_sent",
+    actor,
+    `${getActorLabel(actor)} отправил напоминание (${kind === "day_before" ? "за день" : "в день визита"})`,
+  );
+  writeDatabase(data);
+
+  return mapLead(lead, data);
 }
 
 export function getMonthlyRevenue(date = new Date()) {

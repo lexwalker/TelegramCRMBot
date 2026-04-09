@@ -105,6 +105,10 @@ export default async function LeadDetailsPage({
       locale === "ru"
         ? "Сумма должна быть числом. Используйте формат вроде 2500."
         : "Amount must be a number. Use a value like 2500.",
+    activeBooking: locale === "ru" ? "Активная запись" : "Active booking",
+    cancelledBooking: locale === "ru" ? "Запись отменена" : "Booking cancelled",
+    completedBooking: locale === "ru" ? "Визит завершен" : "Visit completed",
+    noShowBooking: locale === "ru" ? "Клиент не пришел" : "Client did not show up",
   };
 
   const statCards = [
@@ -134,9 +138,23 @@ export default async function LeadDetailsPage({
 
   const statusOptions = [
     { value: "NEW", label: dict.status.NEW },
+    { value: "CONFIRMED", label: dict.status.CONFIRMED },
     { value: "IN_PROGRESS", label: dict.status.IN_PROGRESS },
     { value: "DONE", label: dict.status.DONE },
+    { value: "CANCELLED", label: dict.status.CANCELLED },
+    { value: "NO_SHOW", label: dict.status.NO_SHOW },
   ] as const;
+
+  const bookingStateLabel =
+    lead.status === "CANCELLED"
+      ? localText.cancelledBooking
+      : lead.status === "DONE"
+        ? localText.completedBooking
+        : lead.status === "NO_SHOW"
+          ? localText.noShowBooking
+          : lead.appointmentAt
+            ? localText.activeBooking
+            : dict.detail.bookingNone;
 
   return (
     <main className="grid gap-6 xl:grid-cols-[1.16fr_0.84fr]">
@@ -191,7 +209,7 @@ export default async function LeadDetailsPage({
                 {dict.common.appointment}
               </p>
               <p className="mt-2 text-lg font-semibold text-white">
-                {lead.appointmentAt ? dict.detail.bookingActive : dict.detail.bookingNone}
+                {bookingStateLabel}
               </p>
             </div>
           </div>
@@ -424,12 +442,14 @@ export default async function LeadDetailsPage({
             </button>
           </form>
 
-          <form action={cancelLeadAppointmentAction} className="mt-4">
-            <input type="hidden" name="id" value={lead.id} />
-            <button type="submit" className="w-full rounded-full border border-[color:var(--danger-soft)] bg-[color:var(--danger-soft)] px-5 py-3 text-sm font-medium text-[color:var(--danger)] transition hover:border-[rgba(255,111,127,0.34)]">
-              {dict.common.cancelAppointment}
-            </button>
-          </form>
+          {lead.appointmentAt ? (
+            <form action={cancelLeadAppointmentAction} className="mt-4">
+              <input type="hidden" name="id" value={lead.id} />
+              <button type="submit" className="w-full rounded-full border border-[color:var(--danger-soft)] bg-[color:var(--danger-soft)] px-5 py-3 text-sm font-medium text-[color:var(--danger)] transition hover:border-[rgba(255,111,127,0.34)]">
+                {dict.common.cancelAppointment}
+              </button>
+            </form>
+          ) : null}
         </section>
 
         <section className="rounded-[2rem] border border-[color:var(--border)] bg-[color:var(--surface)] p-8 shadow-[var(--shadow-md)]">

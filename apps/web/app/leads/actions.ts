@@ -14,12 +14,20 @@ import {
   updateLeadAppointment,
   updateLeadMaster,
   updateLeadStatus,
+  updateBookingSettings,
   updateMaster,
   updateService,
 } from "../../lib/leads";
 import { notifyLeadCancelled, notifyLeadRescheduled } from "../../lib/telegram";
 
-const allowedStatuses: LeadStatus[] = ["NEW", "IN_PROGRESS", "DONE"];
+const allowedStatuses: LeadStatus[] = [
+  "NEW",
+  "CONFIRMED",
+  "IN_PROGRESS",
+  "DONE",
+  "CANCELLED",
+  "NO_SHOW",
+];
 const TIMEZONE_OFFSET = "+03:00";
 const WEEKDAY_RANGE = [0, 1, 2, 3, 4, 5, 6] as const;
 
@@ -54,6 +62,11 @@ function parseOptionalPrice(rawValue: FormDataEntryValue | null) {
 function parseServiceDuration(rawValue: FormDataEntryValue | null) {
   const value = Number(String(rawValue ?? "").trim());
   return Number.isFinite(value) ? value : Number.NaN;
+}
+
+function parseNonNegativeInteger(rawValue: FormDataEntryValue | null) {
+  const value = Number(String(rawValue ?? "").trim());
+  return Number.isInteger(value) && value >= 0 ? value : Number.NaN;
 }
 
 function parseWeeklySchedule(formData: FormData): MasterScheduleDay[] {
@@ -372,4 +385,23 @@ export async function deleteServiceAction(formData: FormData) {
   revalidatePath("/masters");
   revalidatePath("/leads");
   redirectWithParams("/masters", { success_code: "service_deleted" });
+}
+
+export async function updateBookingSettingsAction(formData: FormData) {
+  const minLeadTimeMinutes = parseNonNegativeInteger(formData.get("minLeadTimeMinutes"));
+
+  if (Number.isNaN(minLeadTimeMinutes)) {
+    redirectWithParams("/masters", { error_code: "booking_lead_time_invalid" });
+  }
+
+  try {
+    await updateBookingSettings(minLeadTimeMinutes);
+  } catch {
+    redirectWithParams("/masters", { error_code: "booking_settings_unknown" });
+  }
+
+  revalidatePath("/masters");
+  revalidatePath("/calendar");
+  revalidatePath("/leads");
+  redirectWithParams("/masters", { success_code: "booking_settings_updated" });
 }

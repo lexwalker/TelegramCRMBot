@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import {
   Bot,
   InlineKeyboard,
+  Keyboard,
   session,
   type Context,
   type SessionFlavor,
@@ -10,11 +11,15 @@ import {
 import {
   countLeads,
   createLead,
+  getLeadById,
   getLatestBookedLeadByTelegramId,
   listActiveServices,
   listAvailableDateKeys,
   listAvailableTimeSlotsForDate,
+  listDueReminders,
+  markReminderSent,
   updateLeadAppointment,
+  updateLeadStatus,
 } from "@crm-bot/db";
 import { HttpsProxyAgent } from "https-proxy-agent";
 
@@ -181,6 +186,17 @@ function buildServiceKeyboard() {
   return keyboard;
 }
 
+function buildCommentKeyboard() {
+  return new InlineKeyboard().text("Пропустить", "comment:skip");
+}
+
+function buildPhoneKeyboard() {
+  return new Keyboard()
+    .requestContact("Поделиться номером")
+    .resized()
+    .oneTime();
+}
+
 function getFlowServiceId(ctx: BotContext) {
   return ctx.session.bookingMode === "reschedule"
     ? ctx.session.targetServiceId
@@ -206,7 +222,7 @@ function buildDateKeyboard(serviceId: string | null, excludeLeadId?: string | nu
     }
   });
 
-  keyboard.text("Отмена", "booking:cancel");
+  keyboard.text("Не сейчас", "booking:cancel");
   return keyboard;
 }
 
@@ -228,7 +244,7 @@ function buildTimeKeyboard(
     }
   });
 
-  keyboard.text("Другой день", `nav:date:${dateKey}`).text("Отмена", "booking:cancel");
+  keyboard.text("Другой день", `nav:date:${dateKey}`).text("Отменить", "booking:cancel");
 
   return keyboard;
 }
@@ -237,6 +253,14 @@ function buildCancelBookingKeyboard(leadId: string) {
   return new InlineKeyboard()
     .text("Да, отменить", `cancel:confirm:${leadId}`)
     .text("Нет", "cancel:abort");
+}
+
+function buildReminderKeyboard(leadId: string) {
+  return new InlineKeyboard()
+    .text("Подтвердить", `reminder:confirm:${leadId}`)
+    .row()
+    .text("Перенести", `reminder:reschedule:${leadId}`)
+    .text("Отменить", `reminder:cancel:${leadId}`);
 }
 
 async function showDateSelection(ctx: BotContext) {
@@ -249,14 +273,14 @@ async function showDateSelection(ctx: BotContext) {
     : [];
   const title =
     ctx.session.bookingMode === "reschedule"
-      ? "Выберите новый день записи."
-      : "Выберите удобный день записи.";
+      ? "Давайте спокойно подберём новый день."
+      : "Осталось выбрать удобный день.";
 
   if (!serviceId || availableDateKeys.length === 0) {
     ctx.session = getInitialSession();
     await ctx.reply(
       [
-        "Пока не вижу свободных слотов под эту услугу на ближайшие 7 дней.",
+        "Пока не вижу свободных окошек под эту услугу на ближайшие 7 дней.",
         "Попробуйте чуть позже или напишите менеджеру, и мы постараемся подобрать время вручную.",
       ].join("\n"),
     );
@@ -265,8 +289,43 @@ async function showDateSelection(ctx: BotContext) {
 
   await ctx.reply(
     [
-      `Шаг ${ctx.session.bookingMode === "reschedule" ? "1" : "5"} из ${ctx.session.bookingMode === "reschedule" ? "2" : "6"}. ${title}`,
-      "Показываю ближайшие 7 дней, где ещё есть свободное время.",
+      title,
+      "Ниже показываю только те дни, где ещё есть свободное время.",
+    ].join("\n"),
+    {
+      reply_markup: buildDateKeyboard(serviceId, excludeLeadId),
+    },
+  );
+}
+
+async function showDateSelectionInCurrentMessage(ctx: BotContext) {
+  ctx.session.step = "date";
+  ctx.session.draft.selectedDate = null;
+  const excludeLeadId = ctx.session.bookingMode === "reschedule" ? ctx.session.targetLeadId : null;
+  const serviceId = getFlowServiceId(ctx);
+  const availableDateKeys = serviceId
+    ? listAvailableDateKeys(DATE_OPTIONS_DAYS, serviceId, { excludeLeadId })
+    : [];
+  const title =
+    ctx.session.bookingMode === "reschedule"
+      ? "Давайте спокойно подберём новый день."
+      : "Осталось выбрать удобный день.";
+
+  if (!serviceId || availableDateKeys.length === 0) {
+    ctx.session = getInitialSession();
+    await ctx.editMessageText(
+      [
+        "Пока не вижу свободных окошек под эту услугу на ближайшие 7 дней.",
+        "Попробуйте чуть позже или напишите менеджеру, и мы постараемся подобрать время вручную.",
+      ].join("\n"),
+    );
+    return;
+  }
+
+  await ctx.editMessageText(
+    [
+      title,
+      "Ниже показываю только те дни, где ещё есть свободное время.",
     ].join("\n"),
     {
       reply_markup: buildDateKeyboard(serviceId, excludeLeadId),
@@ -287,7 +346,51 @@ async function moveFromPhoneToComment(ctx: BotContext, rawPhone: string) {
   ctx.session.draft.phone = phone;
   ctx.session.step = "comment";
 
-  await ctx.reply("Шаг 4 из 6. Коротко расскажите, с чем вам помочь.");
+  await ctx.reply(
+    [
+      "Отлично, контакт сохранил.",
+      "Если хотите, напишите пару деталей о запросе одним сообщением.",
+      "Если комментарий не нужен, просто нажмите кнопку ниже.",
+    ].join("\n"),
+    {
+      reply_markup: buildCommentKeyboard(),
+    },
+  );
+}
+
+async function sendDueReminders(bot: Bot<BotContext>) {
+  const reminders = listDueReminders();
+
+  for (const reminder of reminders) {
+    if (!reminder.lead.telegramId || !reminder.lead.appointmentAt) {
+      continue;
+    }
+
+    const reminderText =
+      reminder.kind === "day_before"
+        ? [
+            "Небольшое напоминание о вашей записи на завтра.",
+            `Ждём вас: ${formatAppointment(reminder.lead.appointmentAt)}`,
+            "Если всё в силе, подтвердите запись одной кнопкой ниже.",
+          ].join("\n")
+        : [
+            "Напоминаю о вашей записи сегодня.",
+            `Время: ${formatAppointment(reminder.lead.appointmentAt)}`,
+            "Если планы изменились, ниже можно быстро перенести или отменить запись.",
+          ].join("\n");
+
+    try {
+      await bot.api.sendMessage(reminder.lead.telegramId, reminderText, {
+        reply_markup: buildReminderKeyboard(reminder.lead.id),
+      });
+      markReminderSent(reminder.lead.id, reminder.kind, { actor: "system" });
+    } catch (error) {
+      console.error(
+        `[bot] Failed to send ${reminder.kind} reminder for lead ${reminder.lead.id}:`,
+        error,
+      );
+    }
+  }
 }
 
 if (!token) {
@@ -320,7 +423,9 @@ if (!token) {
     const services = listActiveServices();
 
     if (services.length === 0) {
-      await ctx.reply("Сейчас услуги для записи ещё не настроены. Напишите менеджеру, и он быстро всё подготовит.");
+      await ctx.reply(
+        "Сейчас услуги для записи ещё не настроены. Напишите менеджеру, и мы быстро всё подготовим.",
+      );
       return;
     }
 
@@ -330,9 +435,8 @@ if (!token) {
 
     await ctx.reply(
       [
-        "Здравствуйте. Я помогу быстро оставить заявку и выбрать удобное время.",
-        "",
-        "Шаг 1 из 6. Для начала выберите услугу.",
+        "Рада помочь с записью.",
+        "Давайте начнём с услуги, а дальше я быстро проведу вас до удобного времени.",
       ].join("\n"),
       {
         reply_markup: buildServiceKeyboard(),
@@ -347,8 +451,8 @@ if (!token) {
     ctx.session = getInitialSession();
     await ctx.reply(
       [
-        "Хорошо, текущую операцию отменил.",
-        "Когда будете готовы начать заново, просто отправьте /start.",
+        "Хорошо, остановилась на этом шаге.",
+        "Когда захотите вернуться к записи, просто отправьте /start.",
       ].join("\n"),
     );
   });
@@ -370,7 +474,7 @@ if (!token) {
 
     if (!lead || !lead.appointmentAt) {
       await ctx.reply(
-        "Пока не вижу активной записи для переноса. Если хотите оформить новую, отправьте /start.",
+        "Пока не вижу активной записи для переноса. Если захотите оформить новую, просто отправьте /start.",
       );
       return;
     }
@@ -382,7 +486,7 @@ if (!token) {
 
     await ctx.reply(
       [
-        "Нашёл вашу последнюю запись.",
+        "Нашла вашу последнюю запись.",
         `Услуга: ${lead.service?.name ?? "не указана"}`,
         `Сейчас вы записаны на: ${formatAppointment(lead.appointmentAt)}`,
       ].join("\n"),
@@ -408,7 +512,7 @@ if (!token) {
 
     await ctx.reply(
       [
-        "Пожалуйста, подтвердите отмену записи.",
+        "Подтвердите, пожалуйста, отмену записи.",
         `Текущая запись: ${formatAppointment(lead.appointmentAt)}`,
       ].join("\n"),
       {
@@ -430,7 +534,7 @@ if (!token) {
 
   bot.callbackQuery("cancel:abort", async (ctx) => {
     await ctx.answerCallbackQuery({ text: "Отмена записи прервана" });
-    await ctx.editMessageText("Хорошо, отмену записи не выполняю.");
+    await ctx.editMessageText("Хорошо, оставляю запись без изменений.");
   });
 
   bot.callbackQuery(/^cancel:confirm:/, async (ctx) => {
@@ -442,9 +546,9 @@ if (!token) {
       return;
     }
 
-    const lead = getLatestBookedLeadByTelegramId(telegramId);
+    const lead = getLeadById(leadId);
 
-    if (!lead || lead.id !== leadId || !lead.appointmentAt) {
+    if (!lead || lead.telegramId !== telegramId || !lead.appointmentAt) {
       await ctx.answerCallbackQuery({ text: "Запись уже недоступна" });
       await ctx.editMessageText("Похоже, эта запись уже отменена или больше недоступна.");
       return;
@@ -456,8 +560,94 @@ if (!token) {
     await ctx.editMessageText(
       [
         "Готово, запись отменена.",
-        "Если захотите выбрать новое время, отправьте /start.",
+        "Если позже захотите подобрать новое время, просто напишите /start.",
       ].join("\n"),
+    );
+  });
+
+  bot.callbackQuery("comment:skip", async (ctx) => {
+    if (ctx.session.step !== "comment") {
+      await ctx.answerCallbackQuery({ text: "Сейчас этот шаг уже завершен" });
+      return;
+    }
+
+    ctx.session.draft.comment = "";
+    await ctx.answerCallbackQuery({ text: "Комментарий пропущен" });
+    await showDateSelectionInCurrentMessage(ctx);
+  });
+
+  bot.callbackQuery(/^reminder:confirm:/, async (ctx) => {
+    const leadId = ctx.callbackQuery.data.slice("reminder:confirm:".length);
+    const telegramId = getTelegramId(ctx);
+    const lead = getLeadById(leadId);
+
+    if (!telegramId || !lead || lead.telegramId !== telegramId || !lead.appointmentAt) {
+      await ctx.answerCallbackQuery({ text: "Эта запись уже недоступна" });
+      await ctx.editMessageText(
+        "Похоже, запись уже изменилась. Если нужно, напишите /start, чтобы оформить новую.",
+      );
+      return;
+    }
+
+    updateLeadStatus(leadId, "CONFIRMED", undefined, { actor: "bot" });
+
+    await ctx.answerCallbackQuery({ text: "Запись подтверждена" });
+    await ctx.editMessageText(
+      [
+        "Спасибо, запись подтверждена.",
+        `Ждём вас: ${formatAppointment(lead.appointmentAt)}`,
+      ].join("\n"),
+    );
+  });
+
+  bot.callbackQuery(/^reminder:reschedule:/, async (ctx) => {
+    const leadId = ctx.callbackQuery.data.slice("reminder:reschedule:".length);
+    const telegramId = getTelegramId(ctx);
+    const lead = getLeadById(leadId);
+
+    if (!telegramId || !lead || lead.telegramId !== telegramId || !lead.appointmentAt) {
+      await ctx.answerCallbackQuery({ text: "Эта запись уже недоступна" });
+      await ctx.editMessageText(
+        "Похоже, запись уже изменилась. Если нужно, напишите /start, чтобы оформить новую.",
+      );
+      return;
+    }
+
+    ctx.session = getInitialSession();
+    ctx.session.bookingMode = "reschedule";
+    ctx.session.targetLeadId = lead.id;
+    ctx.session.targetServiceId = lead.serviceId;
+
+    await ctx.answerCallbackQuery({ text: "Подберём другое время" });
+    await ctx.editMessageText(
+      [
+        "Хорошо, давайте подберём другое время.",
+        `Текущая запись: ${formatAppointment(lead.appointmentAt)}`,
+      ].join("\n"),
+    );
+    await showDateSelection(ctx);
+  });
+
+  bot.callbackQuery(/^reminder:cancel:/, async (ctx) => {
+    const leadId = ctx.callbackQuery.data.slice("reminder:cancel:".length);
+    const telegramId = getTelegramId(ctx);
+    const lead = getLeadById(leadId);
+
+    if (!telegramId || !lead || lead.telegramId !== telegramId || !lead.appointmentAt) {
+      await ctx.answerCallbackQuery({ text: "Эта запись уже недоступна" });
+      await ctx.editMessageText("Похоже, запись уже была отменена или изменилась.");
+      return;
+    }
+
+    await ctx.answerCallbackQuery();
+    await ctx.editMessageText(
+      [
+        "Подтвердите, пожалуйста, отмену записи.",
+        `Запись: ${formatAppointment(lead.appointmentAt)}`,
+      ].join("\n"),
+      {
+        reply_markup: buildCancelBookingKeyboard(lead.id),
+      },
     );
   });
 
@@ -484,9 +674,10 @@ if (!token) {
       [
         "Отлично, услуга выбрана.",
         `${service.name} • ${service.durationMinutes} мин`,
+        "",
+        "Теперь напишите, как к вам можно обращаться.",
       ].join("\n"),
     );
-    await ctx.reply("Шаг 2 из 6. Подскажите, как к вам обращаться.");
   });
 
   bot.callbackQuery(/^nav:date:/, async (ctx) => {
@@ -505,8 +696,8 @@ if (!token) {
     await ctx.answerCallbackQuery();
     await ctx.editMessageText(
       [
-        `Шаг ${ctx.session.bookingMode === "reschedule" ? "1" : "5"} из ${ctx.session.bookingMode === "reschedule" ? "2" : "6"}. Выберите удобный день записи.`,
-        "Показываю ближайшие 7 дней с доступными слотами.",
+        "Давайте выберем другой день.",
+        "Показываю только те даты, где ещё есть свободные окошки.",
       ].join("\n"),
       {
         reply_markup: buildDateKeyboard(serviceId, ctx.session.targetLeadId),
@@ -553,8 +744,9 @@ if (!token) {
     });
     await ctx.editMessageText(
       [
-        `Шаг ${ctx.session.bookingMode === "reschedule" ? "2" : "6"} из ${ctx.session.bookingMode === "reschedule" ? "2" : "6"}. Выберите удобное время.`,
+        "Отлично, день выбрали.",
         `Дата: ${formatDateLabel(dateKey)}`,
+        "Теперь осталось нажать на удобное время ниже.",
       ].join("\n"),
       {
         reply_markup: buildTimeKeyboard(dateKey, serviceId, ctx.session.targetLeadId),
@@ -625,6 +817,7 @@ if (!token) {
           "Всё получилось.",
           `Номер заявки: ${updatedLead.id}`,
           `Новая дата и время: ${formatAppointment(appointmentAt)}`,
+          "За день до визита я ещё аккуратно напомню о записи.",
         ].join("\n"),
       );
       return;
@@ -652,10 +845,11 @@ if (!token) {
     );
     await ctx.reply(
       [
-        "Спасибо, всё сохранил.",
+        "Готово, запись сохранена.",
         `Номер заявки: ${lead.id}`,
         `Услуга: ${serviceName}`,
         `Дата и время записи: ${formatAppointment(appointmentAt)}`,
+        "За день до визита я напомню о записи и попрошу подтвердить её одной кнопкой.",
         "Если захотите перенести запись, отправьте /reschedule.",
         "Если захотите отменить запись, отправьте /cancel_booking.",
       ].join("\n"),
@@ -669,11 +863,11 @@ if (!token) {
     if (ctx.session.step === "idle") {
       await ctx.reply(
         [
-          "Я готов помочь с записью.",
-          "Чтобы оставить новую заявку, отправьте /start.",
-          "Чтобы перенести запись, отправьте /reschedule.",
-          "Чтобы отменить запись, отправьте /cancel_booking.",
-          "Если хотите остановить текущий ввод, используйте /cancel.",
+          "Я рядом и готов помочь с записью.",
+          "Новая запись: /start",
+          "Перенос записи: /reschedule",
+          "Отмена записи: /cancel_booking",
+          "Остановить текущий ввод: /cancel",
         ].join("\n"),
       );
       return;
@@ -688,7 +882,12 @@ if (!token) {
       ctx.session.draft.name = text;
       ctx.session.step = "phone";
 
-      await ctx.reply("Шаг 3 из 6. Отправьте, пожалуйста, телефон для связи.");
+      await ctx.reply(
+        "Спасибо. Теперь оставьте номер для связи или нажмите кнопку ниже, чтобы поделиться контактом.",
+        {
+          reply_markup: buildPhoneKeyboard(),
+        },
+      );
       return;
     }
 
@@ -699,13 +898,14 @@ if (!token) {
 
     if (ctx.session.step === "comment") {
       ctx.session.draft.comment = text;
+      await ctx.reply("Спасибо, детали тоже сохранила.");
       await showDateSelection(ctx);
       return;
     }
 
     if (ctx.session.step === "date" || ctx.session.step === "time") {
       await ctx.reply(
-        "Чтобы выбрать дату и время, используйте кнопки под сообщением. Если захотите начать заново, отправьте /cancel.",
+        "Чтобы выбрать дату и время, используйте кнопки под сообщением. Если захотите остановиться, просто отправьте /cancel.",
       );
     }
   });
@@ -715,7 +915,7 @@ if (!token) {
 
     if (ctx.session.step !== "phone") {
       await ctx.reply(
-        "Контакт пришёл не в тот шаг анкеты. Если хотите начать новую заявку, отправьте /start.",
+        "Контакт пришёл не в тот момент. Если хотите начать новую заявку, просто отправьте /start.",
       );
       return;
     }
@@ -731,6 +931,8 @@ if (!token) {
     console.error("[bot] Unhandled rejection:", error);
   });
 
+  let reminderTimerStarted = false;
+
   void (async () => {
     try {
       console.log("[bot] Checking Telegram connection...");
@@ -741,6 +943,13 @@ if (!token) {
         drop_pending_updates: true,
         onStart() {
           console.log("[bot] Polling started");
+          if (!reminderTimerStarted) {
+            reminderTimerStarted = true;
+            void sendDueReminders(bot);
+            setInterval(() => {
+              void sendDueReminders(bot);
+            }, 60_000);
+          }
         },
       });
     } catch (error) {

@@ -108,8 +108,9 @@ export default async function LeadsPage({ searchParams }: LeadsPageProps) {
   const stats = result.ok
     ? [
         { label: dict.leads.newLeads, value: filteredLeads.filter((lead) => lead.status === "NEW").length, tone: "bg-[linear-gradient(135deg,#7184ff,#9aa7ff)] text-white" },
+        { label: dict.status.CONFIRMED, value: filteredLeads.filter((lead) => lead.status === "CONFIRMED").length, tone: "bg-[linear-gradient(135deg,#53d3c6,#88efe4)] text-[color:var(--foreground)]" },
         { label: dict.leads.inProgress, value: filteredLeads.filter((lead) => lead.status === "IN_PROGRESS").length, tone: "bg-[linear-gradient(135deg,#ffb258,#ffd37a)] text-[color:var(--foreground)]" },
-        { label: dict.leads.booked, value: filteredLeads.filter((lead) => Boolean(lead.appointmentAt)).length, tone: "bg-[linear-gradient(135deg,#53d48f,#90efb7)] text-[color:var(--foreground)]" },
+        { label: dict.leads.booked, value: filteredLeads.filter((lead) => Boolean(lead.appointmentAt) && ["NEW", "CONFIRMED", "IN_PROGRESS"].includes(lead.status)).length, tone: "bg-[linear-gradient(135deg,#53d48f,#90efb7)] text-[color:var(--foreground)]" },
         { label: dict.leads.done, value: filteredLeads.filter((lead) => lead.status === "DONE").length, tone: "border-[color:var(--border)] bg-[color:var(--surface-contrast)] text-[color:var(--foreground)]" },
       ]
     : [];
@@ -150,7 +151,7 @@ export default async function LeadsPage({ searchParams }: LeadsPageProps) {
         </section>
       ) : (
         <>
-          <section className="grid gap-4 xl:grid-cols-4">
+          <section className="grid gap-4 xl:grid-cols-5">
             {stats.map((stat) => (
               <article
                 key={stat.label}
@@ -185,8 +186,11 @@ export default async function LeadsPage({ searchParams }: LeadsPageProps) {
               <select name="status" defaultValue={statusFilter} className="rounded-full border border-[color:var(--border-soft)] bg-[color:var(--surface-strong)] px-4 py-2.5 text-sm text-[color:var(--foreground)] shadow-[0_10px_24px_rgba(50,72,230,0.08)]">
                 <option value="all">{uiText.allStatuses}</option>
                 <option value="NEW">{dict.status.NEW}</option>
+                <option value="CONFIRMED">{dict.status.CONFIRMED}</option>
                 <option value="IN_PROGRESS">{dict.status.IN_PROGRESS}</option>
                 <option value="DONE">{dict.status.DONE}</option>
+                <option value="CANCELLED">{dict.status.CANCELLED}</option>
+                <option value="NO_SHOW">{dict.status.NO_SHOW}</option>
               </select>
 
               <select name="master" defaultValue={masterFilter} className="rounded-full border border-[color:var(--border-soft)] bg-[color:var(--surface-strong)] px-4 py-2.5 text-sm text-[color:var(--foreground)] shadow-[0_10px_24px_rgba(50,72,230,0.08)]">

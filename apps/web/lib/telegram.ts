@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+﻿import { execFileSync } from "node:child_process";
 import * as https from "node:https";
 import type { Lead } from "@crm-bot/db";
 import { HttpsProxyAgent } from "https-proxy-agent";
@@ -140,9 +140,9 @@ export async function notifyLeadRescheduled(lead: Lead) {
   return sendTelegramMessage(
     lead.telegramId,
     [
-      "Менеджер перенес вашу запись.",
-      `Новая дата и время: ${formatAppointment(lead.appointmentAt)}`,
-      "Если время не подходит, используйте /reschedule или /cancel_booking.",
+      "Запись обновили.",
+      `Новое время: ${formatAppointment(lead.appointmentAt)}`,
+      "Если новое время вам не подходит, можно воспользоваться /reschedule или /cancel_booking.",
     ].join("\n"),
   );
 }
@@ -155,9 +155,9 @@ export async function notifyLeadCancelled(lead: Lead, previousAppointmentAt: str
   return sendTelegramMessage(
     lead.telegramId as string,
     [
-      "Менеджер отменил вашу запись.",
-      `Отмененная запись: ${formatAppointment(previousAppointmentAt)}`,
-      "Чтобы выбрать новое время, отправьте /start.",
+      "Запись отменили.",
+      `Отменённое время: ${formatAppointment(previousAppointmentAt)}`,
+      "Если захотите выбрать новое время, просто отправьте /start.",
     ].join("\n"),
   );
 }

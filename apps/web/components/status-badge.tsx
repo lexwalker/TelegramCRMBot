@@ -19,10 +19,25 @@ export function StatusBadge({ status, locale = "ru" }: StatusBadgeProps) {
       className:
         "border-[rgba(255,187,84,0.18)] bg-[color:var(--warning-soft)] text-[#d68a16]",
     },
+    CONFIRMED: {
+      label: dict.status.CONFIRMED,
+      className:
+        "border-[rgba(76,199,186,0.18)] bg-[rgba(76,199,186,0.1)] text-[#0d9c8f]",
+    },
     DONE: {
       label: dict.status.DONE,
       className:
         "border-[rgba(53,201,120,0.18)] bg-[color:var(--success-soft)] text-[#21a55f]",
+    },
+    CANCELLED: {
+      label: dict.status.CANCELLED,
+      className:
+        "border-[rgba(255,111,127,0.18)] bg-[rgba(255,111,127,0.1)] text-[color:var(--danger)]",
+    },
+    NO_SHOW: {
+      label: dict.status.NO_SHOW,
+      className:
+        "border-[rgba(136,148,180,0.18)] bg-[rgba(136,148,180,0.12)] text-[color:var(--foreground-soft)]",
     },
   };
 

@@ -5,6 +5,7 @@
   deleteMaster as deleteMasterInDb,
   deleteService as deleteServiceInDb,
   getLeadById as getLeadByIdFromDb,
+  getBookingSettings as getBookingSettingsFromDb,
   getMonthlyRevenue as getMonthlyRevenueFromDb,
   isAppointmentSlotAvailable as isAppointmentSlotAvailableInDb,
   listActiveMasters as listActiveMastersFromDb,
@@ -22,6 +23,7 @@
   updateLeadMaster as updateLeadMasterInDb,
   updateLeadService as updateLeadServiceInDb,
   updateLeadStatus as updateLeadStatusInDb,
+  updateBookingSettings as updateBookingSettingsInDb,
   updateMaster as updateMasterInDb,
   updateService as updateServiceInDb,
 } from "@crm-bot/db";
@@ -59,6 +61,10 @@ export function listActiveMasters() {
 
 export function listServices() {
   return Promise.resolve(listServicesFromDb());
+}
+
+export function getBookingSettings() {
+  return Promise.resolve(getBookingSettingsFromDb());
 }
 
 export function listActiveServices() {
@@ -178,6 +184,10 @@ export function updateService(
 
 export function deleteService(id: string) {
   return Promise.resolve(deleteServiceInDb(id));
+}
+
+export function updateBookingSettings(minLeadTimeMinutes: number) {
+  return Promise.resolve(updateBookingSettingsInDb({ minLeadTimeMinutes }));
 }
 
 export function getMonthlyRevenue(date?: Date) {
