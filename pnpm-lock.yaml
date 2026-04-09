@@ -42,6 +42,9 @@ importers:
       '@crm-bot/db':
         specifier: workspace:*
         version: link:../../packages/db
+      https-proxy-agent:
+        specifier: ^7.0.6
+        version: 7.0.6
       next:
         specifier: ^15.3.0
         version: 15.5.14(react-dom@19.2.4(react@19.2.4))(react@19.2.4)

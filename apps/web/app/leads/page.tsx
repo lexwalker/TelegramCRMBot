@@ -1,4 +1,4 @@
-import Link from "next/link";
+﻿import Link from "next/link";
 import { getLeads } from "../../lib/leads";
 import { StatusBadge } from "../../components/status-badge";
 
@@ -12,6 +12,7 @@ function formatAppointment(value: string | null) {
   return new Intl.DateTimeFormat("ru-RU", {
     dateStyle: "medium",
     timeStyle: "short",
+    timeZone: "Europe/Moscow",
   }).format(new Date(value));
 }
 
@@ -29,8 +30,7 @@ export default async function LeadsPage() {
             <h2 className="mt-2 text-3xl font-semibold">Заявки</h2>
           </div>
           <p className="text-sm text-[var(--muted)]">
-            Здесь уже видны реальные обращения из Telegram и время записи, когда
-            мы начнем сохранять его из бота.
+            Здесь видны обращения из Telegram, время записи и назначенный мастер.
           </p>
         </div>
       </section>
@@ -68,6 +68,11 @@ export default async function LeadsPage() {
                 <div className="rounded-2xl border border-[var(--border)] bg-white/70 px-4 py-3 text-sm">
                   <span className="text-[var(--muted)]">Дата и время записи:</span>{" "}
                   {formatAppointment(lead.appointmentAt)}
+                </div>
+
+                <div className="rounded-2xl border border-[var(--border)] bg-white/70 px-4 py-3 text-sm">
+                  <span className="text-[var(--muted)]">Мастер:</span>{" "}
+                  {lead.master?.name ?? "Не назначен"}
                 </div>
 
                 <div className="flex items-center justify-between gap-3 border-t border-[var(--border)] pt-4">

@@ -1,5 +1,5 @@
-import Link from "next/link";
-import { listLeads } from "../../lib/leads";
+﻿import Link from "next/link";
+import { listActiveMasters, listLeads } from "../../lib/leads";
 import { StatusBadge } from "../../components/status-badge";
 
 export const dynamic = "force-dynamic";
@@ -74,6 +74,8 @@ export default async function CalendarPage({ searchParams }: CalendarPageProps) 
   const resolvedSearchParams = (await searchParams) ?? {};
   const selectedDate = resolvedSearchParams.date ?? getTodayKey();
   const leads = await listLeads();
+  const activeMasters = await listActiveMasters();
+  const activeMasterCount = activeMasters.length;
   const dayLeads = leads.filter((lead) => isSameDay(lead.appointmentAt, selectedDate));
   const previousDate = getNeighborDateKey(selectedDate, -1);
   const nextDate = getNeighborDateKey(selectedDate, 1);
@@ -90,8 +92,7 @@ export default async function CalendarPage({ searchParams }: CalendarPageProps) 
               Записи на {formatHumanDate(selectedDate)}
             </h2>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-[var(--muted)]">
-              Свободные слоты показывают, куда еще можно поставить клиента.
-              Занятые ячейки содержат заявку и быстрый переход в карточку.
+              В слоте может быть несколько записей, пока не заняты все активные мастера.
             </p>
           </div>
 
@@ -126,7 +127,7 @@ export default async function CalendarPage({ searchParams }: CalendarPageProps) 
           </form>
         </div>
 
-        <div className="mt-6 grid gap-4 sm:grid-cols-3">
+        <div className="mt-6 grid gap-4 sm:grid-cols-4">
           <div className="rounded-2xl border border-[var(--border)] bg-white/70 p-4">
             <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">
               Всего записей
@@ -136,11 +137,19 @@ export default async function CalendarPage({ searchParams }: CalendarPageProps) 
 
           <div className="rounded-2xl border border-[var(--border)] bg-white/70 p-4">
             <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">
+              Активных мастеров
+            </p>
+            <p className="mt-2 text-2xl font-semibold">{activeMasterCount}</p>
+          </div>
+
+          <div className="rounded-2xl border border-[var(--border)] bg-white/70 p-4">
+            <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">
               Свободных слотов
             </p>
             <p className="mt-2 text-2xl font-semibold">
-              {TIME_SLOTS.filter((slot) => getSlotLeads(leads, selectedDate, slot).length === 0)
-                .length}
+              {TIME_SLOTS.filter(
+                (slot) => getSlotLeads(leads, selectedDate, slot).length < activeMasterCount,
+              ).length}
             </p>
           </div>
 
@@ -156,7 +165,9 @@ export default async function CalendarPage({ searchParams }: CalendarPageProps) 
       <section className="grid gap-4">
         {TIME_SLOTS.map((slot) => {
           const slotLeads = getSlotLeads(leads, selectedDate, slot);
-          const isBusy = slotLeads.length > 0;
+          const occupiedCount = slotLeads.length;
+          const isBusy = occupiedCount > 0;
+          const isFull = activeMasterCount > 0 && occupiedCount >= activeMasterCount;
 
           return (
             <article
@@ -173,11 +184,18 @@ export default async function CalendarPage({ searchParams }: CalendarPageProps) 
                     Время
                   </p>
                   <h3 className="mt-2 text-2xl font-semibold">{slot}</h3>
+                  <p className="mt-2 text-sm text-[var(--muted)]">
+                    Занято мастеров: {occupiedCount} из {activeMasterCount}
+                  </p>
                 </div>
 
                 {isBusy ? (
-                  <span className="inline-flex rounded-full bg-[#d96c4a] px-3 py-1 text-sm font-medium text-white">
-                    Занято
+                  <span
+                    className={`inline-flex rounded-full px-3 py-1 text-sm font-medium text-white ${
+                      isFull ? "bg-[#d96c4a]" : "bg-[#2c8f6d]"
+                    }`}
+                  >
+                    {isFull ? "Полностью занято" : "Есть свободный мастер"}
                   </span>
                 ) : (
                   <span className="inline-flex rounded-full bg-[#d8eee3] px-3 py-1 text-sm font-medium text-[#125b50]">
@@ -188,7 +206,7 @@ export default async function CalendarPage({ searchParams }: CalendarPageProps) 
 
               {!isBusy ? (
                 <p className="mt-4 text-sm text-[var(--muted)]">
-                  На этот слот пока нет записи.
+                  На этот слот пока нет записей.
                 </p>
               ) : (
                 <div className="mt-5 space-y-4">
@@ -201,18 +219,17 @@ export default async function CalendarPage({ searchParams }: CalendarPageProps) 
                         <div>
                           <h4 className="text-lg font-semibold">{lead.name}</h4>
                           <p className="mt-1 text-sm text-[var(--muted)]">{lead.phone}</p>
+                          <p className="mt-1 text-sm text-[var(--muted)]">
+                            Мастер: {lead.master?.name ?? "Не назначен"}
+                          </p>
                         </div>
                         <StatusBadge status={lead.status} />
                       </div>
 
-                      <p className="mt-4 line-clamp-2 text-sm leading-6">
-                        {lead.comment}
-                      </p>
+                      <p className="mt-4 line-clamp-2 text-sm leading-6">{lead.comment}</p>
 
                       <div className="mt-4 flex items-center justify-between gap-3 border-t border-[var(--border)] pt-4">
-                        <p className="text-sm text-[var(--muted)]">
-                          Слот занят заявкой
-                        </p>
+                        <p className="text-sm text-[var(--muted)]">Слот занят этой заявкой</p>
                         <Link
                           href={`/leads/${lead.id}`}
                           className="rounded-full bg-[var(--accent)] px-4 py-2 text-sm text-[var(--accent-foreground)] transition hover:opacity-90"

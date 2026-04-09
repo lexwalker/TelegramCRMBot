@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+﻿import type { Metadata } from "next";
 import Link from "next/link";
 import "./globals.css";
 
@@ -6,6 +6,13 @@ export const metadata: Metadata = {
   title: "CRM Bot MVP",
   description: "Telegram bot + CRM MVP",
 };
+
+const navItems = [
+  { href: "/", label: "Обзор" },
+  { href: "/leads", label: "Заявки" },
+  { href: "/calendar", label: "Календарь" },
+  { href: "/masters", label: "Мастера" },
+];
 
 export default function RootLayout({
   children,
@@ -27,24 +34,15 @@ export default function RootLayout({
             </div>
 
             <nav className="flex flex-wrap gap-3 text-sm">
-              <Link
-                href="/"
-                className="rounded-full border border-[var(--border)] px-4 py-2 transition hover:border-[var(--accent)] hover:text-[var(--accent)]"
-              >
-                Обзор
-              </Link>
-              <Link
-                href="/leads"
-                className="rounded-full border border-[var(--border)] px-4 py-2 transition hover:border-[var(--accent)] hover:text-[var(--accent)]"
-              >
-                Заявки
-              </Link>
-              <Link
-                href="/calendar"
-                className="rounded-full bg-[var(--accent)] px-4 py-2 text-[var(--accent-foreground)] transition hover:opacity-90"
-              >
-                Календарь
-              </Link>
+              {navItems.map((item) => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className="rounded-full border border-[var(--border)] px-4 py-2 transition hover:border-[var(--accent)] hover:text-[var(--accent)]"
+                >
+                  {item.label}
+                </Link>
+              ))}
             </nav>
           </header>
 

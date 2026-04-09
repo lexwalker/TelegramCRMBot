@@ -1,10 +1,14 @@
-import Link from "next/link";
+﻿import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getLeadById } from "../../../lib/leads";
+import {
+  getLeadById,
+  listAvailableMastersForAppointment,
+} from "../../../lib/leads";
 import { StatusBadge } from "../../../components/status-badge";
 import {
   addLeadNoteAction,
   cancelLeadAppointmentAction,
+  changeLeadMasterAction,
   rescheduleLeadAction,
   updateLeadStatusAction,
 } from "../actions";
@@ -23,6 +27,7 @@ function formatDate(value: string) {
   return new Intl.DateTimeFormat("ru-RU", {
     dateStyle: "medium",
     timeStyle: "short",
+    timeZone: "Europe/Moscow",
   }).format(new Date(value));
 }
 
@@ -62,7 +67,7 @@ export default async function LeadDetailsPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams?: Promise<{ error?: string }>;
+  searchParams?: Promise<{ error?: string; master_error?: string }>;
 }) {
   const { id } = await params;
   const resolvedSearchParams = (await searchParams) ?? {};
@@ -72,6 +77,10 @@ export default async function LeadDetailsPage({
     notFound();
   }
 
+  const availableMasters = lead.appointmentAt
+    ? await listAvailableMastersForAppointment(lead.appointmentAt, lead.id)
+    : [];
+
   return (
     <main className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
       <section className="space-y-6">
@@ -79,9 +88,15 @@ export default async function LeadDetailsPage({
           <section className="rounded-[2rem] border border-amber-300 bg-amber-50 p-6 text-amber-950 shadow-sm">
             <h3 className="text-lg font-semibold">Слот уже занят</h3>
             <p className="mt-2 text-sm leading-6">
-              На выбранные дату и время уже стоит другая запись. Выберите другой
-              свободный слот.
+              На выбранные дату и время уже записаны все мастера. Выберите другой свободный слот.
             </p>
+          </section>
+        ) : null}
+
+        {resolvedSearchParams.master_error ? (
+          <section className="rounded-[2rem] border border-amber-300 bg-amber-50 p-6 text-amber-950 shadow-sm">
+            <h3 className="text-lg font-semibold">Не удалось сменить мастера</h3>
+            <p className="mt-2 text-sm leading-6">{resolvedSearchParams.master_error}</p>
           </section>
         ) : null}
 
@@ -100,35 +115,30 @@ export default async function LeadDetailsPage({
             <StatusBadge status={lead.status} />
           </div>
 
-          <dl className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          <dl className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <div className="rounded-2xl border border-[var(--border)] bg-white/70 p-4">
-              <dt className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">
-                Создана
-              </dt>
+              <dt className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">Создана</dt>
               <dd className="mt-2 text-sm">{formatDate(lead.createdAt)}</dd>
             </div>
 
             <div className="rounded-2xl border border-[var(--border)] bg-white/70 p-4">
-              <dt className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">
-                Дата записи
-              </dt>
-              <dd className="mt-2 text-sm">
-                {formatAppointment(lead.appointmentAt)}
-              </dd>
+              <dt className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">Дата записи</dt>
+              <dd className="mt-2 text-sm">{formatAppointment(lead.appointmentAt)}</dd>
             </div>
 
             <div className="rounded-2xl border border-[var(--border)] bg-white/70 p-4">
-              <dt className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">
-                Telegram ID
-              </dt>
+              <dt className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">Мастер</dt>
+              <dd className="mt-2 text-sm">{lead.master?.name ?? "Не назначен"}</dd>
+            </div>
+
+            <div className="rounded-2xl border border-[var(--border)] bg-white/70 p-4">
+              <dt className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">Telegram ID</dt>
               <dd className="mt-2 text-sm">{lead.telegramId ?? "Не сохранен"}</dd>
             </div>
           </dl>
 
           <div className="mt-8 rounded-3xl border border-[var(--border)] bg-white/70 p-5">
-            <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">
-              Запрос клиента
-            </p>
+            <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">Запрос клиента</p>
             <p className="mt-3 whitespace-pre-wrap leading-7">{lead.comment}</p>
           </div>
         </div>
@@ -136,17 +146,13 @@ export default async function LeadDetailsPage({
         <div className="rounded-[2rem] border border-[var(--border)] bg-[var(--surface)] p-8 shadow-sm">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-sm uppercase tracking-[0.25em] text-[var(--muted)]">
-                Заметки
-              </p>
+              <p className="text-sm uppercase tracking-[0.25em] text-[var(--muted)]">Заметки</p>
               <h3 className="mt-2 text-2xl font-semibold">История по заявке</h3>
             </div>
           </div>
 
           {lead.notes.length === 0 ? (
-            <p className="mt-6 text-sm text-[var(--muted)]">
-              Заметок пока нет. Ниже можно добавить первую.
-            </p>
+            <p className="mt-6 text-sm text-[var(--muted)]">Заметок пока нет. Ниже можно добавить первую.</p>
           ) : (
             <div className="mt-6 space-y-4">
               {lead.notes.map((note) => (
@@ -167,9 +173,7 @@ export default async function LeadDetailsPage({
 
       <aside className="space-y-6">
         <section className="rounded-[2rem] border border-[var(--border)] bg-[var(--surface)] p-8 shadow-sm">
-          <p className="text-sm uppercase tracking-[0.25em] text-[var(--muted)]">
-            Действия
-          </p>
+          <p className="text-sm uppercase tracking-[0.25em] text-[var(--muted)]">Действия</p>
           <h3 className="mt-2 text-2xl font-semibold">Сменить статус</h3>
 
           <form action={updateLeadStatusAction} className="mt-6 space-y-4">
@@ -199,10 +203,46 @@ export default async function LeadDetailsPage({
         </section>
 
         <section className="rounded-[2rem] border border-[var(--border)] bg-[var(--surface)] p-8 shadow-sm">
-          <p className="text-sm uppercase tracking-[0.25em] text-[var(--muted)]">
-            Запись
+          <p className="text-sm uppercase tracking-[0.25em] text-[var(--muted)]">Мастер</p>
+          <h3 className="mt-2 text-2xl font-semibold">Поменять мастера</h3>
+          <p className="mt-2 text-sm text-[var(--muted)]">
+            Для этого времени можно выбрать только свободного мастера.
           </p>
+
+          {lead.appointmentAt ? (
+            <form action={changeLeadMasterAction} className="mt-6 space-y-4">
+              <input type="hidden" name="id" value={lead.id} />
+              <select
+                name="masterId"
+                defaultValue={lead.masterId ?? availableMasters[0]?.id ?? ""}
+                className="w-full rounded-2xl border border-[var(--border)] bg-white px-4 py-3 outline-none transition focus:border-[var(--accent)]"
+              >
+                {availableMasters.map((master) => (
+                  <option key={master.id} value={master.id}>
+                    {master.name}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="submit"
+                className="w-full rounded-full border border-[var(--border)] px-5 py-3 text-sm font-medium transition hover:border-[var(--accent)] hover:text-[var(--accent)]"
+              >
+                Сохранить мастера
+              </button>
+            </form>
+          ) : (
+            <p className="mt-4 text-sm text-[var(--muted)]">
+              Сначала у заявки должна быть назначена дата и время записи.
+            </p>
+          )}
+        </section>
+
+        <section className="rounded-[2rem] border border-[var(--border)] bg-[var(--surface)] p-8 shadow-sm">
+          <p className="text-sm uppercase tracking-[0.25em] text-[var(--muted)]">Запись</p>
           <h3 className="mt-2 text-2xl font-semibold">Перенести запись</h3>
+          <p className="mt-2 text-sm text-[var(--muted)]">
+            При переносе система автоматически назначит первого свободного мастера.
+          </p>
 
           <form action={rescheduleLeadAction} className="mt-6 space-y-4">
             <input type="hidden" name="id" value={lead.id} />
@@ -259,9 +299,7 @@ export default async function LeadDetailsPage({
         </section>
 
         <section className="rounded-[2rem] border border-[var(--border)] bg-[var(--surface)] p-8 shadow-sm">
-          <p className="text-sm uppercase tracking-[0.25em] text-[var(--muted)]">
-            Комментарий менеджера
-          </p>
+          <p className="text-sm uppercase tracking-[0.25em] text-[var(--muted)]">Комментарий менеджера</p>
           <h3 className="mt-2 text-2xl font-semibold">Добавить заметку</h3>
 
           <form action={addLeadNoteAction} className="mt-6 space-y-4">
