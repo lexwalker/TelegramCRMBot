@@ -1,8 +1,10 @@
 import {
   addLeadNote as addLeadNoteInDb,
   getLeadById as getLeadByIdFromDb,
+  isAppointmentSlotAvailable as isAppointmentSlotAvailableInDb,
   listLeads as listLeadsFromDb,
   type LeadStatus,
+  updateLeadAppointment as updateLeadAppointmentInDb,
   updateLeadStatus as updateLeadStatusInDb,
 } from "@crm-bot/db";
 
@@ -35,4 +37,17 @@ export function updateLeadStatus(id: string, status: LeadStatus) {
 
 export function addLeadNote(id: string, text: string) {
   return Promise.resolve(addLeadNoteInDb(id, text));
+}
+
+export function updateLeadAppointment(id: string, appointmentAt: string | null) {
+  return Promise.resolve(updateLeadAppointmentInDb(id, appointmentAt));
+}
+
+export function isAppointmentSlotAvailable(
+  appointmentAt: string,
+  excludeLeadId?: string | null,
+) {
+  return Promise.resolve(
+    isAppointmentSlotAvailableInDb(appointmentAt, { excludeLeadId }),
+  );
 }

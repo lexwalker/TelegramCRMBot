@@ -2,7 +2,12 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getLeadById } from "../../../lib/leads";
 import { StatusBadge } from "../../../components/status-badge";
-import { addLeadNoteAction, updateLeadStatusAction } from "../actions";
+import {
+  addLeadNoteAction,
+  cancelLeadAppointmentAction,
+  rescheduleLeadAction,
+  updateLeadStatusAction,
+} from "../actions";
 
 export const dynamic = "force-dynamic";
 
@@ -11,6 +16,8 @@ const statusOptions = [
   { value: "IN_PROGRESS", label: "В работе" },
   { value: "DONE", label: "Завершена" },
 ] as const;
+
+const timeSlots = ["10:00", "12:00", "14:00", "16:00", "18:00"] as const;
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat("ru-RU", {
@@ -27,12 +34,38 @@ function formatAppointment(value: string | null) {
   return formatDate(value);
 }
 
+function getAppointmentDateValue(value: string | null) {
+  if (!value) {
+    return "";
+  }
+
+  return new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "Europe/Moscow",
+  }).format(new Date(value));
+}
+
+function getAppointmentTimeValue(value: string | null) {
+  if (!value) {
+    return timeSlots[0];
+  }
+
+  return new Intl.DateTimeFormat("ru-RU", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: "Europe/Moscow",
+  }).format(new Date(value));
+}
+
 export default async function LeadDetailsPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams?: Promise<{ error?: string }>;
 }) {
   const { id } = await params;
+  const resolvedSearchParams = (await searchParams) ?? {};
   const lead = await getLeadById(id);
 
   if (!lead) {
@@ -42,6 +75,16 @@ export default async function LeadDetailsPage({
   return (
     <main className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
       <section className="space-y-6">
+        {resolvedSearchParams.error === "slot_taken" ? (
+          <section className="rounded-[2rem] border border-amber-300 bg-amber-50 p-6 text-amber-950 shadow-sm">
+            <h3 className="text-lg font-semibold">Слот уже занят</h3>
+            <p className="mt-2 text-sm leading-6">
+              На выбранные дату и время уже стоит другая запись. Выберите другой
+              свободный слот.
+            </p>
+          </section>
+        ) : null}
+
         <div className="rounded-[2rem] border border-[var(--border)] bg-[var(--surface)] p-8 shadow-sm">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
@@ -151,6 +194,66 @@ export default async function LeadDetailsPage({
               className="w-full rounded-full bg-[var(--accent)] px-5 py-3 text-sm font-medium text-[var(--accent-foreground)] transition hover:opacity-90"
             >
               Сохранить статус
+            </button>
+          </form>
+        </section>
+
+        <section className="rounded-[2rem] border border-[var(--border)] bg-[var(--surface)] p-8 shadow-sm">
+          <p className="text-sm uppercase tracking-[0.25em] text-[var(--muted)]">
+            Запись
+          </p>
+          <h3 className="mt-2 text-2xl font-semibold">Перенести запись</h3>
+
+          <form action={rescheduleLeadAction} className="mt-6 space-y-4">
+            <input type="hidden" name="id" value={lead.id} />
+
+            <div>
+              <label className="block text-sm text-[var(--muted)]" htmlFor="appointment-date">
+                День
+              </label>
+              <input
+                id="appointment-date"
+                type="date"
+                name="date"
+                required
+                defaultValue={getAppointmentDateValue(lead.appointmentAt)}
+                className="mt-2 w-full rounded-2xl border border-[var(--border)] bg-white px-4 py-3 outline-none transition focus:border-[var(--accent)]"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm text-[var(--muted)]" htmlFor="appointment-time">
+                Время
+              </label>
+              <select
+                id="appointment-time"
+                name="time"
+                defaultValue={getAppointmentTimeValue(lead.appointmentAt)}
+                className="mt-2 w-full rounded-2xl border border-[var(--border)] bg-white px-4 py-3 outline-none transition focus:border-[var(--accent)]"
+              >
+                {timeSlots.map((slot) => (
+                  <option key={slot} value={slot}>
+                    {slot}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <button
+              type="submit"
+              className="w-full rounded-full bg-[var(--accent)] px-5 py-3 text-sm font-medium text-[var(--accent-foreground)] transition hover:opacity-90"
+            >
+              Перенести запись
+            </button>
+          </form>
+
+          <form action={cancelLeadAppointmentAction} className="mt-4">
+            <input type="hidden" name="id" value={lead.id} />
+            <button
+              type="submit"
+              className="w-full rounded-full border border-[#d96c4a] px-5 py-3 text-sm font-medium text-[#b54b2d] transition hover:bg-[#fff3ef]"
+            >
+              Отменить запись
             </button>
           </form>
         </section>

@@ -21,10 +21,12 @@ export default function RootLayout({
               <p className="text-sm uppercase tracking-[0.3em] text-[var(--muted)]">
                 CRM Bot
               </p>
-              <h1 className="mt-1 text-2xl font-semibold">MVP для заявок из Telegram</h1>
+              <h1 className="mt-1 text-2xl font-semibold">
+                MVP для заявок и записи из Telegram
+              </h1>
             </div>
 
-            <nav className="flex gap-3 text-sm">
+            <nav className="flex flex-wrap gap-3 text-sm">
               <Link
                 href="/"
                 className="rounded-full border border-[var(--border)] px-4 py-2 transition hover:border-[var(--accent)] hover:text-[var(--accent)]"
@@ -33,9 +35,15 @@ export default function RootLayout({
               </Link>
               <Link
                 href="/leads"
-                className="rounded-full bg-[var(--accent)] px-4 py-2 text-[var(--accent-foreground)] transition hover:opacity-90"
+                className="rounded-full border border-[var(--border)] px-4 py-2 transition hover:border-[var(--accent)] hover:text-[var(--accent)]"
               >
                 Заявки
+              </Link>
+              <Link
+                href="/calendar"
+                className="rounded-full bg-[var(--accent)] px-4 py-2 text-[var(--accent-foreground)] transition hover:opacity-90"
+              >
+                Календарь
               </Link>
             </nav>
           </header>

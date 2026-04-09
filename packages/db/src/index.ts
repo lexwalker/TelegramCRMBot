@@ -36,6 +36,10 @@ type DatabaseShape = {
   notes: LeadNote[];
 };
 
+type AppointmentAvailabilityOptions = {
+  excludeLeadId?: string | null;
+};
+
 const DATABASE_URL = process.env.DATABASE_URL ?? "file:./data/db.json";
 
 function resolveDatabasePath(databaseUrl: string) {
@@ -121,10 +125,30 @@ export function getLeadById(id: string): Lead | null {
   return lead ? mapLead(lead, data) : null;
 }
 
+export function isAppointmentSlotAvailable(
+  appointmentAt: string,
+  options: AppointmentAvailabilityOptions = {},
+) {
+  const data = readDatabase();
+
+  return !data.leads.some(
+    (lead) =>
+      lead.appointmentAt === appointmentAt && lead.id !== options.excludeLeadId,
+  );
+}
+
 export function createLead(input: CreateLeadInput): Lead {
   const data = readDatabase();
   const id = createId("lead");
   const timestamp = nowIso();
+
+  if (
+    input.appointmentAt &&
+    !isAppointmentSlotAvailable(input.appointmentAt, { excludeLeadId: null })
+  ) {
+    throw new Error("Appointment slot is already taken");
+  }
+
   const lead: Omit<Lead, "notes"> = {
     id,
     telegramId: input.telegramId ?? null,
@@ -180,6 +204,54 @@ export function addLeadNote(leadId: string, text: string): LeadNote {
   writeDatabase(data);
 
   return note;
+}
+
+export function updateLeadAppointment(
+  leadId: string,
+  appointmentAt: string | null,
+): Lead {
+  const data = readDatabase();
+  const timestamp = nowIso();
+  const lead = data.leads.find((item) => item.id === leadId);
+
+  if (!lead) {
+    throw new Error("Lead not found");
+  }
+
+  if (
+    appointmentAt &&
+    !isAppointmentSlotAvailable(appointmentAt, { excludeLeadId: leadId })
+  ) {
+    throw new Error("Appointment slot is already taken");
+  }
+
+  lead.appointmentAt = appointmentAt;
+  lead.updatedAt = timestamp;
+  writeDatabase(data);
+
+  return mapLead(lead, data);
+}
+
+export function getLatestLeadByTelegramId(telegramId: string): Lead | null {
+  const data = readDatabase();
+  const lead = [...data.leads]
+    .filter((item) => item.telegramId === telegramId)
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+
+  return lead ? mapLead(lead, data) : null;
+}
+
+export function getLatestBookedLeadByTelegramId(telegramId: string): Lead | null {
+  const data = readDatabase();
+  const lead = [...data.leads]
+    .filter((item) => item.telegramId === telegramId && item.appointmentAt)
+    .sort((a, b) => {
+      const aTime = a.appointmentAt ?? a.updatedAt;
+      const bTime = b.appointmentAt ?? b.updatedAt;
+      return bTime.localeCompare(aTime);
+    })[0];
+
+  return lead ? mapLead(lead, data) : null;
 }
 
 export function countLeads() {
