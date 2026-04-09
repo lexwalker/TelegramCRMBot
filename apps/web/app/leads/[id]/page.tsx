@@ -57,7 +57,7 @@ function getAppointmentTimeValue(value: string | null) {
 
 function Notice({ title, text }: { title: string; text: string }) {
   return (
-    <section className="rounded-[1.8rem] border border-[color:var(--danger-soft)] bg-white p-6 shadow-[var(--shadow-md)]">
+    <section className="rounded-[1.8rem] border border-[color:var(--danger-soft)] bg-[color:var(--surface-strong)] p-6 shadow-[var(--shadow-md)]">
       <h3 className="text-lg font-semibold text-[color:var(--foreground)]">{title}</h3>
       <p className="mt-2 text-sm leading-7 text-[color:var(--foreground-soft)]">{text}</p>
     </section>
@@ -204,7 +204,7 @@ export default async function LeadDetailsPage({
               className={`rounded-[1.7rem] border p-5 shadow-[var(--shadow-md)] ${
                 index === 1
                   ? "border-[color:var(--accent-soft)] bg-[linear-gradient(135deg,#6b7eff,#4d63ff)] text-white"
-                  : "border-[color:var(--border)] bg-white"
+                  : "border-[color:var(--border)] bg-[color:var(--surface-strong)]"
               }`}
             >
               <dt className={`text-[11px] uppercase tracking-[0.22em] ${index === 1 ? "text-white/68" : "text-[color:var(--muted)]"}`}>
@@ -217,14 +217,14 @@ export default async function LeadDetailsPage({
           ))}
         </div>
 
-        <div className="rounded-[2rem] border border-[color:var(--border)] bg-white p-8 shadow-[var(--shadow-md)]">
+        <div className="rounded-[2rem] border border-[color:var(--border)] bg-[color:var(--surface)] p-8 shadow-[var(--shadow-md)]">
           <p className="text-sm uppercase tracking-[0.24em] text-[color:var(--muted)]">{dict.common.request}</p>
           <p className="mt-4 whitespace-pre-wrap text-sm leading-8 text-[color:var(--foreground-soft)] sm:text-base">
             {lead.comment}
           </p>
         </div>
 
-        <div className="rounded-[2rem] border border-[color:var(--border)] bg-white p-8 shadow-[var(--shadow-md)]">
+        <div className="rounded-[2rem] border border-[color:var(--border)] bg-[color:var(--surface)] p-8 shadow-[var(--shadow-md)]">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <p className="text-sm uppercase tracking-[0.24em] text-[color:var(--muted)]">{dict.common.notes}</p>
@@ -243,7 +243,7 @@ export default async function LeadDetailsPage({
               {lead.notes.map((note, index) => (
                 <article
                   key={note.id}
-                  className="rounded-[1.7rem] border border-[color:var(--border-soft)] bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(240,244,255,0.82))] p-5"
+                  className="rounded-[1.7rem] border border-[color:var(--border-soft)] bg-[linear-gradient(180deg,var(--surface-strong),var(--surface-muted))] p-5"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="text-[11px] uppercase tracking-[0.22em] text-[color:var(--muted)]">
@@ -262,7 +262,7 @@ export default async function LeadDetailsPage({
           )}
         </div>
 
-        <div className="rounded-[2rem] border border-[color:var(--border)] bg-white p-8 shadow-[var(--shadow-md)]">
+        <div className="rounded-[2rem] border border-[color:var(--border)] bg-[color:var(--surface)] p-8 shadow-[var(--shadow-md)]">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <p className="text-sm uppercase tracking-[0.24em] text-[color:var(--muted)]">
@@ -285,7 +285,7 @@ export default async function LeadDetailsPage({
               {lead.history.map((entry) => (
                 <article
                   key={entry.id}
-                  className="rounded-[1.7rem] border border-[color:var(--border-soft)] bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(240,244,255,0.82))] p-5"
+                  className="rounded-[1.7rem] border border-[color:var(--border-soft)] bg-[linear-gradient(180deg,var(--surface-strong),var(--surface-muted))] p-5"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="text-[11px] uppercase tracking-[0.22em] text-[color:var(--muted)]">
@@ -320,7 +320,7 @@ export default async function LeadDetailsPage({
               id="status"
               name="status"
               defaultValue={lead.status}
-              className="mt-2 w-full rounded-[1.3rem] border border-white/10 bg-white/8 px-4 py-3 text-white outline-none transition focus:border-white/25"
+              className="mt-2 w-full rounded-[1.3rem] border border-[rgba(127,144,196,0.18)] bg-[rgba(24,31,58,0.94)] px-4 py-3 text-white outline-none transition focus:border-[rgba(140,155,255,0.46)]"
             >
               {statusOptions.map((option) => (
                 <option key={option.value} value={option.value} className="text-black">
@@ -340,17 +340,17 @@ export default async function LeadDetailsPage({
                 step="0.01"
                 defaultValue={lead.finalPrice ?? lead.service?.price ?? ""}
                 placeholder={lead.service?.price == null ? "2500" : undefined}
-                className="mt-2 w-full rounded-[1.3rem] border border-white/10 bg-white/8 px-4 py-3 text-white outline-none transition focus:border-white/25 placeholder:text-white/35"
+                className="mt-2 w-full rounded-[1.3rem] border border-[rgba(127,144,196,0.18)] bg-[rgba(24,31,58,0.94)] px-4 py-3 text-white outline-none transition focus:border-[rgba(140,155,255,0.46)] placeholder:text-white/30"
               />
               <p className="mt-2 text-xs leading-5 text-white/55">{localText.finalPriceHint}</p>
             </div>
-            <button type="submit" className="w-full rounded-full bg-white px-5 py-3 text-sm font-medium text-[color:var(--ink-dark)] transition hover:opacity-90">
+            <button type="submit" className="w-full rounded-full border border-[rgba(117,134,255,0.34)] bg-[linear-gradient(135deg,#7082ff,#5b6dff)] px-5 py-3 text-sm font-medium text-white transition hover:brightness-105">
               {dict.common.saveStatus}
             </button>
           </form>
         </section>
 
-        <section className="rounded-[2rem] border border-[color:var(--border)] bg-white p-8 shadow-[var(--shadow-md)]">
+        <section className="rounded-[2rem] border border-[color:var(--border)] bg-[color:var(--surface)] p-8 shadow-[var(--shadow-md)]">
           <p className="text-sm uppercase tracking-[0.24em] text-[color:var(--muted)]">{dict.common.master}</p>
           <h3 className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-[color:var(--foreground)]" style={{ fontFamily: "var(--font-heading)" }}>
             {dict.detail.masterCard}
@@ -382,7 +382,7 @@ export default async function LeadDetailsPage({
           )}
         </section>
 
-        <section className="rounded-[2rem] border border-[color:var(--border)] bg-white p-8 shadow-[var(--shadow-md)]">
+        <section className="rounded-[2rem] border border-[color:var(--border)] bg-[color:var(--surface)] p-8 shadow-[var(--shadow-md)]">
           <p className="text-sm uppercase tracking-[0.24em] text-[color:var(--muted)]">{dict.common.appointment}</p>
           <h3 className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-[color:var(--foreground)]" style={{ fontFamily: "var(--font-heading)" }}>
             {dict.detail.appointmentCard}
@@ -432,7 +432,7 @@ export default async function LeadDetailsPage({
           </form>
         </section>
 
-        <section className="rounded-[2rem] border border-[color:var(--border)] bg-white p-8 shadow-[var(--shadow-md)]">
+        <section className="rounded-[2rem] border border-[color:var(--border)] bg-[color:var(--surface)] p-8 shadow-[var(--shadow-md)]">
           <p className="text-sm uppercase tracking-[0.24em] text-[color:var(--muted)]">{dict.detail.noteCard}</p>
           <h3 className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-[color:var(--foreground)]" style={{ fontFamily: "var(--font-heading)" }}>
             {dict.detail.noteCardTitle}
@@ -446,7 +446,7 @@ export default async function LeadDetailsPage({
               placeholder={dict.common.notePlaceholder}
               className="w-full rounded-[1.5rem] border border-[color:var(--border)] bg-[color:var(--surface-strong)] px-4 py-3 outline-none transition focus:border-[color:var(--accent)]"
             />
-            <button type="submit" className="w-full rounded-full border border-[color:var(--border)] px-5 py-3 text-sm font-medium transition hover:border-[color:var(--accent)] hover:text-[color:var(--accent)]">
+            <button type="submit" className="w-full rounded-full border border-[rgba(127,144,196,0.22)] bg-[color:var(--surface-strong)] px-5 py-3 text-sm font-medium transition hover:border-[color:var(--accent)] hover:text-[color:var(--accent)]">
               {dict.common.saveNote}
             </button>
           </form>

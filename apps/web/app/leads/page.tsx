@@ -110,7 +110,7 @@ export default async function LeadsPage({ searchParams }: LeadsPageProps) {
         { label: dict.leads.newLeads, value: filteredLeads.filter((lead) => lead.status === "NEW").length, tone: "bg-[linear-gradient(135deg,#7184ff,#9aa7ff)] text-white" },
         { label: dict.leads.inProgress, value: filteredLeads.filter((lead) => lead.status === "IN_PROGRESS").length, tone: "bg-[linear-gradient(135deg,#ffb258,#ffd37a)] text-[color:var(--foreground)]" },
         { label: dict.leads.booked, value: filteredLeads.filter((lead) => Boolean(lead.appointmentAt)).length, tone: "bg-[linear-gradient(135deg,#53d48f,#90efb7)] text-[color:var(--foreground)]" },
-        { label: dict.leads.done, value: filteredLeads.filter((lead) => lead.status === "DONE").length, tone: "bg-white text-[color:var(--foreground)]" },
+        { label: dict.leads.done, value: filteredLeads.filter((lead) => lead.status === "DONE").length, tone: "border-[color:var(--border)] bg-[color:var(--surface-contrast)] text-[color:var(--foreground)]" },
       ]
     : [];
 
@@ -135,12 +135,12 @@ export default async function LeadsPage({ searchParams }: LeadsPageProps) {
       </section>
 
       {!result.ok ? (
-        <section className="rounded-[2rem] border border-[color:var(--danger-soft)] bg-white p-6 shadow-[var(--shadow-md)]">
+        <section className="rounded-[2rem] border border-[color:var(--danger-soft)] bg-[color:var(--surface-strong)] p-6 shadow-[var(--shadow-md)]">
           <h3 className="text-lg font-semibold text-[color:var(--foreground)]">{dict.leads.dbTitle}</h3>
           <p className="mt-2 text-sm leading-7 text-[color:var(--foreground-soft)]">{result.message}</p>
         </section>
       ) : result.leads.length === 0 ? (
-        <section className="rounded-[2rem] border border-[color:var(--border)] bg-white p-8 shadow-[var(--shadow-md)]">
+        <section className="rounded-[2rem] border border-[color:var(--border)] bg-[color:var(--surface)] p-8 shadow-[var(--shadow-md)]">
           <h3 className="text-3xl font-semibold tracking-[-0.04em] text-[color:var(--foreground)]" style={{ fontFamily: "var(--font-heading)" }}>
             {dict.leads.emptyTitle}
           </h3>
@@ -164,12 +164,12 @@ export default async function LeadsPage({ searchParams }: LeadsPageProps) {
             ))}
           </section>
 
-          <section className="rounded-[2rem] border border-[color:var(--border)] bg-white p-6 shadow-[var(--shadow-md)] sm:p-8">
+          <section className="rounded-[2rem] border border-[color:var(--border)] bg-[color:var(--surface)] p-6 shadow-[var(--shadow-md)] sm:p-8">
             <form className="mb-6 grid gap-3 xl:grid-cols-[1.5fr_repeat(4,0.8fr)_0.8fr_auto_auto] xl:items-center">
               <div className="inline-flex items-center gap-3 rounded-full border border-[color:var(--border-soft)] bg-[color:var(--surface-contrast)] px-4 py-2.5 text-sm text-[color:var(--foreground-soft)] shadow-[0_10px_24px_rgba(50,72,230,0.08)]">
                 <span
                   aria-hidden
-                  className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-white text-[color:var(--accent-strong)]"
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-[color:var(--surface-strong)] text-[color:var(--accent-strong)]"
                 >
                   ⌕
                 </span>
@@ -182,21 +182,21 @@ export default async function LeadsPage({ searchParams }: LeadsPageProps) {
                 />
               </div>
 
-              <select name="status" defaultValue={statusFilter} className="rounded-full border border-[color:var(--border-soft)] bg-white px-4 py-2.5 text-sm text-[color:var(--foreground)] shadow-[0_10px_24px_rgba(50,72,230,0.08)]">
+              <select name="status" defaultValue={statusFilter} className="rounded-full border border-[color:var(--border-soft)] bg-[color:var(--surface-strong)] px-4 py-2.5 text-sm text-[color:var(--foreground)] shadow-[0_10px_24px_rgba(50,72,230,0.08)]">
                 <option value="all">{uiText.allStatuses}</option>
                 <option value="NEW">{dict.status.NEW}</option>
                 <option value="IN_PROGRESS">{dict.status.IN_PROGRESS}</option>
                 <option value="DONE">{dict.status.DONE}</option>
               </select>
 
-              <select name="master" defaultValue={masterFilter} className="rounded-full border border-[color:var(--border-soft)] bg-white px-4 py-2.5 text-sm text-[color:var(--foreground)] shadow-[0_10px_24px_rgba(50,72,230,0.08)]">
+              <select name="master" defaultValue={masterFilter} className="rounded-full border border-[color:var(--border-soft)] bg-[color:var(--surface-strong)] px-4 py-2.5 text-sm text-[color:var(--foreground)] shadow-[0_10px_24px_rgba(50,72,230,0.08)]">
                 <option value="all">{uiText.allMasters}</option>
                 {masters.map((master) => (
                   <option key={master.id} value={master.id}>{master.name}</option>
                 ))}
               </select>
 
-              <select name="service" defaultValue={serviceFilter} className="rounded-full border border-[color:var(--border-soft)] bg-white px-4 py-2.5 text-sm text-[color:var(--foreground)] shadow-[0_10px_24px_rgba(50,72,230,0.08)]">
+              <select name="service" defaultValue={serviceFilter} className="rounded-full border border-[color:var(--border-soft)] bg-[color:var(--surface-strong)] px-4 py-2.5 text-sm text-[color:var(--foreground)] shadow-[0_10px_24px_rgba(50,72,230,0.08)]">
                 <option value="all">{uiText.allServices}</option>
                 {services.map((service) => (
                   <option key={service.id} value={service.id}>{service.name}</option>
@@ -207,7 +207,7 @@ export default async function LeadsPage({ searchParams }: LeadsPageProps) {
                 type="date"
                 name="date"
                 defaultValue={dateFilter}
-                className="rounded-full border border-[color:var(--border-soft)] bg-white px-4 py-2.5 text-sm text-[color:var(--foreground)] shadow-[0_10px_24px_rgba(50,72,230,0.08)]"
+                className="rounded-full border border-[color:var(--border-soft)] bg-[color:var(--surface-strong)] px-4 py-2.5 text-sm text-[color:var(--foreground)] shadow-[0_10px_24px_rgba(50,72,230,0.08)]"
               />
 
               <select name="sort" defaultValue={sortFilter} className="rounded-full border border-[color:var(--border-soft)] bg-[color:var(--surface-contrast)] px-4 py-2.5 text-sm font-medium text-[color:var(--accent-strong)] shadow-[0_10px_24px_rgba(50,72,230,0.08)]">
@@ -215,20 +215,20 @@ export default async function LeadsPage({ searchParams }: LeadsPageProps) {
                 <option value="oldest">{uiText.sortOldest}</option>
               </select>
 
-              <div className="rounded-full border border-[color:var(--border-soft)] bg-white px-4 py-2.5 text-sm text-[color:var(--foreground-soft)] shadow-[0_10px_24px_rgba(50,72,230,0.08)] text-center">
+              <div className="rounded-full border border-[color:var(--border-soft)] bg-[color:var(--surface-strong)] px-4 py-2.5 text-sm text-[color:var(--foreground-soft)] shadow-[0_10px_24px_rgba(50,72,230,0.08)] text-center">
                 {filteredLeads.length} {dict.leads.toolbar.entries}
               </div>
 
               <button
                 type="submit"
-                className="rounded-full border border-[color:var(--border-soft)] bg-white px-4 py-2.5 text-sm font-medium text-[color:var(--foreground)] shadow-[0_10px_24px_rgba(50,72,230,0.08)]"
+                className="rounded-full border border-[rgba(117,134,255,0.26)] bg-[linear-gradient(135deg,rgba(88,104,236,0.38),rgba(55,69,150,0.22))] px-4 py-2.5 text-sm font-medium text-[color:var(--foreground)] shadow-[0_10px_24px_rgba(50,72,230,0.14)]"
               >
                 {uiText.apply}
               </button>
 
               <Link
                 href="/leads"
-                className="rounded-full border border-[color:var(--border-soft)] bg-[color:var(--surface-contrast)] px-4 py-2.5 text-sm font-medium text-[color:var(--accent-strong)] shadow-[0_10px_24px_rgba(50,72,230,0.08)] text-center"
+                className="rounded-full border border-[rgba(117,134,255,0.22)] bg-[linear-gradient(135deg,rgba(88,104,236,0.24),rgba(44,57,130,0.16))] px-4 py-2.5 text-sm font-medium text-[color:var(--accent-strong)] shadow-[0_10px_24px_rgba(50,72,230,0.1)] text-center"
               >
                 {uiText.reset}
               </Link>
@@ -254,7 +254,7 @@ export default async function LeadsPage({ searchParams }: LeadsPageProps) {
                   <Link
                     key={lead.id}
                     href={`/leads/${lead.id}`}
-                    className="grid gap-4 rounded-[1.6rem] border border-[color:var(--border-soft)] bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(243,246,255,0.78))] p-4 transition hover:-translate-y-0.5 hover:border-[color:var(--accent-soft)] hover:shadow-[var(--shadow-md)] xl:grid-cols-[1.2fr_1fr_1fr_0.9fr_0.9fr_0.8fr] xl:items-center"
+                    className="grid gap-4 rounded-[1.6rem] border border-[color:var(--border-soft)] bg-[linear-gradient(180deg,var(--surface-strong),var(--surface-muted))] p-4 transition hover:-translate-y-0.5 hover:border-[rgba(117,134,255,0.34)] hover:bg-[linear-gradient(180deg,var(--surface-contrast),var(--surface-strong))] hover:shadow-[var(--shadow-md)] xl:grid-cols-[1.2fr_1fr_1fr_0.9fr_0.9fr_0.8fr] xl:items-center"
                   >
                     <div className="space-y-2">
                       <h3 className="text-lg font-semibold tracking-[-0.03em] text-[color:var(--foreground)]" style={{ fontFamily: "var(--font-heading)" }}>

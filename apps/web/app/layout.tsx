@@ -2,13 +2,22 @@ import type { Metadata } from "next";
 import { Inter, Manrope } from "next/font/google";
 import { AppNavigation } from "../components/app-navigation";
 import { LanguageSwitcher } from "../components/language-switcher";
+import { PageTransition } from "../components/page-transition";
 import { getCurrentLocale, getDictionary } from "../lib/i18n";
+import { ThemeSwitcher } from "../components/theme-switcher";
+import {
+  getCurrentThemePreference,
+  getThemeCookieName,
+  resolveThemePreference,
+} from "../lib/theme";
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: "CRM Bot",
   description: "Telegram bot + CRM",
 };
+
+const THEME_INIT_SCRIPT = `(function(){try{var cookieName="__COOKIE_NAME__";var match=document.cookie.match(new RegExp('(?:^|; )'+cookieName.replace(/[-.$?*|{}()\\[\\]\\\\/+^]/g,'\\\\$&')+'=([^;]*)'));var preference=match?decodeURIComponent(match[1]):'system';var resolved=preference==='dark'||preference==='light'?preference:(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');document.documentElement.dataset.theme=resolved;document.documentElement.style.colorScheme=resolved;}catch(e){}})();`;
 
 const headingFont = Manrope({
   subsets: ["latin", "cyrillic"],
@@ -22,7 +31,7 @@ const bodyFont = Inter({
 
 function SearchChrome({ placeholder }: { placeholder: string }) {
   return (
-    <div className="flex h-14 min-w-[280px] items-center gap-3 rounded-[1.35rem] border border-[color:var(--border-soft)] bg-white/92 px-4 text-sm text-[color:var(--foreground-soft)] shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]">
+    <div className="flex h-14 min-w-[280px] items-center gap-3 rounded-[1.35rem] border border-[color:var(--border-soft)] bg-[color:var(--surface-strong)] px-4 text-sm text-[color:var(--foreground-soft)] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
       <span className="relative h-4 w-4 shrink-0">
         <span className="absolute inset-0 rounded-full border-2 border-[#9aa4c7]" />
         <span className="absolute bottom-[-1px] right-[-2px] h-2 w-[2px] rotate-45 rounded-full bg-[#9aa4c7]" />
@@ -44,7 +53,7 @@ function HeaderPill({
       className={`inline-flex h-12 items-center rounded-full border px-4 text-sm font-medium ${
         accent
           ? "border-transparent bg-[color:var(--surface-contrast)] text-[color:var(--accent-strong)]"
-          : "border-[color:var(--border-soft)] bg-white/82 text-[color:var(--foreground-soft)]"
+          : "border-[color:var(--border-soft)] bg-[color:var(--surface-strong)] text-[color:var(--foreground-soft)]"
       }`}
     >
       {label}
@@ -67,8 +76,14 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const locale = await getCurrentLocale();
+  const themePreference = await getCurrentThemePreference();
+  const theme = resolveThemePreference(themePreference);
   const dict = getDictionary(locale);
   const todayLabel = formatTodayLabel(locale);
+  const themeInitScript = THEME_INIT_SCRIPT.replace(
+    "__COOKIE_NAME__",
+    getThemeCookieName(),
+  );
   const navItems = [
     { href: "/", label: dict.nav.overview, glyph: "grid" as const },
     { href: "/leads", label: dict.nav.leads, glyph: "list" as const },
@@ -77,7 +92,15 @@ export default async function RootLayout({
   ];
 
   return (
-    <html lang={locale}>
+    <html
+      lang={locale}
+      data-theme={theme}
+      style={{ colorScheme: theme }}
+      suppressHydrationWarning
+    >
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+      </head>
       <body className={`${headingFont.variable} ${bodyFont.variable}`}>
         <div className="mx-auto min-h-screen max-w-[1760px] px-3 py-4 sm:px-5 sm:py-6">
           <div className="grid gap-5 lg:grid-cols-[96px_minmax(0,1fr)]">
@@ -118,7 +141,7 @@ export default async function RootLayout({
             </aside>
 
             <div className="space-y-6">
-              <header className="rounded-[2.1rem] border border-[color:var(--border)] bg-[color:var(--surface)] p-4 shadow-[var(--shadow-md)] backdrop-blur-2xl sm:p-5">
+              <header className="relative z-40 rounded-[2.1rem] border border-[color:var(--border)] bg-[color:var(--surface)] p-4 shadow-[var(--shadow-md)] backdrop-blur-2xl sm:p-5">
                 <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
                   <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
                     <SearchChrome placeholder={dict.layout.searchPlaceholder} />
@@ -128,8 +151,9 @@ export default async function RootLayout({
 
                   <div className="flex flex-wrap items-center gap-3">
                     <HeaderPill label={dict.layout.liveChip} accent />
+                    <ThemeSwitcher currentTheme={themePreference} />
                     <LanguageSwitcher currentLocale={locale} />
-                    <div className="flex items-center gap-3 rounded-[1.45rem] border border-[color:var(--border-soft)] bg-white px-3 py-2.5 shadow-[0_10px_24px_rgba(50,72,230,0.08)]">
+                    <div className="flex items-center gap-3 rounded-[1.45rem] border border-[color:var(--border-soft)] bg-[color:var(--surface-strong)] px-3 py-2.5 shadow-[0_10px_24px_rgba(50,72,230,0.08)]">
                       <div className="text-right">
                         <p className="text-[10px] uppercase tracking-[0.2em] text-[color:var(--muted)]">
                           CRM operator
@@ -146,7 +170,7 @@ export default async function RootLayout({
                 </div>
               </header>
 
-              <div className="space-y-6">{children}</div>
+              <PageTransition>{children}</PageTransition>
             </div>
           </div>
         </div>

@@ -94,20 +94,20 @@ export function LanguageSwitcher({ currentLocale }: LanguageSwitcherProps) {
   const ActiveFlag = activeOption.Flag;
 
   return (
-    <div ref={rootRef} className="relative">
+    <div ref={rootRef} className="relative z-[70]">
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
         aria-haspopup="menu"
         aria-expanded={open}
-        className="inline-flex h-12 w-12 items-center justify-center rounded-full border border-[color:var(--border-soft)] bg-white shadow-[0_10px_24px_rgba(50,72,230,0.08)] transition hover:border-[color:var(--accent-soft)] hover:bg-[color:var(--surface-muted)]"
+        className="inline-flex h-12 w-12 items-center justify-center rounded-full border border-[color:var(--border-soft)] bg-[color:var(--surface-strong)] shadow-[0_10px_24px_rgba(50,72,230,0.08)] transition hover:border-[color:var(--accent-soft)] hover:bg-[color:var(--surface-muted)]"
         title={activeOption.label}
       >
         <ActiveFlag />
       </button>
 
       {open ? (
-        <div className="absolute right-0 top-[calc(100%+0.75rem)] z-20 flex items-center gap-2 rounded-[1.2rem] border border-[color:var(--border)] bg-white/96 p-2 shadow-[0_18px_40px_rgba(50,72,230,0.16)] backdrop-blur-xl">
+        <div className="absolute right-0 top-[calc(100%+0.75rem)] z-[80] flex items-center gap-2 rounded-[1.2rem] border border-[color:var(--border)] bg-[color:var(--surface)] p-2 shadow-[0_18px_40px_rgba(50,72,230,0.16)] backdrop-blur-xl">
           {OPTIONS.map((option) => {
             const active = option.value === locale;
             const Flag = option.Flag;
@@ -122,8 +122,8 @@ export function LanguageSwitcher({ currentLocale }: LanguageSwitcherProps) {
                 title={option.label}
                 className={`inline-flex h-11 w-11 items-center justify-center rounded-full border transition ${
                   active
-                    ? "border-[color:var(--accent-soft)] bg-[color:var(--surface-contrast)] shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]"
-                    : "border-transparent bg-white hover:border-[color:var(--border-soft)] hover:bg-[color:var(--surface-muted)]"
+                    ? "border-[color:var(--accent-soft)] bg-[color:var(--surface-contrast)] shadow-[inset_0_1px_0_rgba(255,255,255,0.16)]"
+                    : "border-transparent bg-[color:var(--surface-strong)] hover:border-[color:var(--border-soft)] hover:bg-[color:var(--surface-muted)]"
                 }`}
               >
                 <Flag />

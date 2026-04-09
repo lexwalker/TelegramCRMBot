@@ -1,16 +1,12 @@
 ﻿import Link from "next/link";
 import { StatusBadge } from "../../components/status-badge";
-import {
-  listActiveMasters,
-  listDayTimeSlots,
-  listLeads,
-  listLeadsAffectingSlot,
-} from "../../lib/leads";
+import { listActiveMasters, listLeads } from "../../lib/leads";
 import { getCurrentLocale, getDictionary, getLocaleTag } from "../../lib/i18n";
 
 export const dynamic = "force-dynamic";
 
 const WEEKDAY_BASE = [0, 1, 2, 3, 4, 5, 6];
+const DEFAULT_SLOT_MINUTES = 60;
 
 type CalendarPageProps = {
   searchParams?: Promise<{
@@ -24,6 +20,21 @@ function getDateKey(date: Date) {
   }).format(date);
 }
 
+function timeToMinutes(value: string) {
+  const [hours, minutes] = value.split(":").map(Number);
+  return hours * 60 + minutes;
+}
+
+function minutesToTime(value: number) {
+  const hours = Math.floor(value / 60)
+    .toString()
+    .padStart(2, "0");
+  const minutes = Math.floor(value % 60)
+    .toString()
+    .padStart(2, "0");
+  return `${hours}:${minutes}`;
+}
+
 function getTodayKey() {
   return getDateKey(new Date());
 }
@@ -31,6 +42,10 @@ function getTodayKey() {
 function parseDateKey(dateKey: string) {
   const [year, month, day] = dateKey.split("-").map(Number);
   return new Date(Date.UTC(year, month - 1, day, 12));
+}
+
+function getWeekday(dateKey: string) {
+  return new Date(`${dateKey}T12:00:00+03:00`).getUTCDay();
 }
 
 function formatHumanDate(dateKey: string, locale: "ru" | "en") {
@@ -116,6 +131,71 @@ function getWeekdayLabels(locale: "ru" | "en") {
   });
 }
 
+function getDaySlots(
+  dateKey: string,
+  activeMasters: Awaited<ReturnType<typeof listActiveMasters>>,
+) {
+  const weekday = getWeekday(dateKey);
+  const slots = new Set<string>();
+
+  for (const master of activeMasters) {
+    const schedule = master.weeklySchedule.find((day) => day.dayOfWeek === weekday);
+
+    if (!schedule?.isWorking) {
+      continue;
+    }
+
+    const start = timeToMinutes(schedule.startTime);
+    const end = timeToMinutes(schedule.endTime);
+
+    for (
+      let current = start;
+      current + DEFAULT_SLOT_MINUTES <= end;
+      current += DEFAULT_SLOT_MINUTES
+    ) {
+      slots.add(minutesToTime(current));
+    }
+  }
+
+  return [...slots].sort((left, right) => timeToMinutes(left) - timeToMinutes(right));
+}
+
+function overlapsSlot(
+  appointmentAt: string,
+  slotTime: string,
+  durationMinutes: number,
+) {
+  const appointmentStart = timeToMinutes(appointmentAt.slice(11, 16));
+  const appointmentEnd = appointmentStart + durationMinutes;
+  const slotStart = timeToMinutes(slotTime);
+  const slotEnd = slotStart + DEFAULT_SLOT_MINUTES;
+
+  return appointmentStart < slotEnd && slotStart < appointmentEnd;
+}
+
+function getSlotLeadMap(
+  dateKey: string,
+  slots: string[],
+  leads: Awaited<ReturnType<typeof listLeads>>,
+) {
+  const dayLeads = leads.filter((lead) => isSameDay(lead.appointmentAt, dateKey));
+
+  return new Map(
+    slots.map((slot) => [
+      slot,
+      dayLeads.filter((lead) =>
+        lead.appointmentAt
+          ? overlapsSlot(
+              lead.appointmentAt,
+              slot,
+              lead.service?.durationMinutes ?? DEFAULT_SLOT_MINUTES,
+            )
+          : false,
+      ),
+    ]),
+  );
+}
+
 export default async function CalendarPage({ searchParams }: CalendarPageProps) {
   const locale = await getCurrentLocale();
   const dict = getDictionary(locale);
@@ -130,19 +210,19 @@ export default async function CalendarPage({ searchParams }: CalendarPageProps) 
   const previousMonth = shiftMonth(selectedDate, -1);
   const nextMonth = shiftMonth(selectedDate, 1);
   const weekdayLabels = getWeekdayLabels(locale);
-  const daySlots = await listDayTimeSlots(selectedDate);
+  const daySlots = getDaySlots(selectedDate, activeMasters);
+  const selectedDaySlotLeadMap = getSlotLeadMap(selectedDate, daySlots, leads);
 
-  const slotSummaries = await Promise.all(
-    daySlots.map(async (slot) => {
-      const slotLeads = await listLeadsAffectingSlot(selectedDate, slot);
-      return {
-        slot,
-        leads: slotLeads,
-        occupiedCount: slotLeads.length,
-        remainingCount: Math.max(activeMasterCount - slotLeads.length, 0),
-      };
-    }),
-  );
+  const slotSummaries = daySlots.map((slot) => {
+    const slotLeads = selectedDaySlotLeadMap.get(slot) ?? [];
+
+    return {
+      slot,
+      leads: slotLeads,
+      occupiedCount: slotLeads.length,
+      remainingCount: Math.max(activeMasterCount - slotLeads.length, 0),
+    };
+  });
 
   const freeSlots = slotSummaries.filter((slot) => slot.occupiedCount < activeMasterCount).length;
   const bookedCapacity = slotSummaries.reduce((sum, slot) => sum + slot.occupiedCount, 0);
@@ -155,35 +235,33 @@ export default async function CalendarPage({ searchParams }: CalendarPageProps) 
     { label: dict.calendar.utilization, value: `${utilization}%` },
   ];
 
-  const monthCells = await Promise.all(
-    monthDays.map(async (day) => {
-      const slotsForDay = await listDayTimeSlots(day.key);
-      const slotStates = await Promise.all(
-        slotsForDay.map(async (slot) => {
-          const slotLeads = await listLeadsAffectingSlot(day.key, slot);
-          return {
-            slot,
-            isBusy: slotLeads.length > 0,
-            isFull: activeMasterCount > 0 && slotLeads.length >= activeMasterCount,
-          };
-        }),
-      );
-      const freeCountByDay = slotStates.filter((slot) => !slot.isFull).length;
-      const leadCount = leadCountByDate.get(day.key) ?? 0;
+  const monthCells = monthDays.map((day) => {
+    const slotsForDay = getDaySlots(day.key, activeMasters);
+    const slotLeadMap = getSlotLeadMap(day.key, slotsForDay, leads);
+    const slotStates = slotsForDay.map((slot) => {
+      const slotLeads = slotLeadMap.get(slot) ?? [];
 
       return {
-        ...day,
-        leadCount,
-        freeCountByDay,
-        slotStates,
+        slot,
+        isBusy: slotLeads.length > 0,
+        isFull: activeMasterCount > 0 && slotLeads.length >= activeMasterCount,
       };
-    }),
-  );
+    });
+    const freeCountByDay = slotStates.filter((slot) => !slot.isFull).length;
+    const leadCount = leadCountByDate.get(day.key) ?? 0;
+
+    return {
+      ...day,
+      leadCount,
+      freeCountByDay,
+      slotStates,
+    };
+  });
 
   return (
     <main className="space-y-5">
       <section className="grid gap-5 xl:grid-cols-[1.36fr_0.64fr]">
-        <div className="rounded-[1.95rem] border border-[color:var(--border)] bg-[rgba(255,255,255,0.92)] p-5 shadow-[var(--shadow-md)] backdrop-blur-xl sm:p-6">
+        <div className="rounded-[1.95rem] border border-[color:var(--border)] bg-[color:var(--surface)] p-5 shadow-[var(--shadow-md)] backdrop-blur-xl sm:p-6">
           <div className="flex flex-col gap-4 border-b border-[color:var(--border-soft)] pb-5 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <p className="text-sm tracking-[0.16em] text-[color:var(--muted)]">{dict.calendar.eyebrow}</p>
@@ -194,13 +272,13 @@ export default async function CalendarPage({ searchParams }: CalendarPageProps) 
             </div>
 
             <div className="flex flex-wrap items-center gap-2.5">
-              <Link href={`/calendar?date=${previousMonth}`} className="inline-flex items-center justify-center rounded-full border border-[color:var(--border)] bg-white/84 px-3.5 py-2.5 text-sm font-medium transition hover:border-[color:var(--accent)] hover:text-[color:var(--accent)]">
+              <Link href={`/calendar?date=${previousMonth}`} className="inline-flex items-center justify-center rounded-full border border-[color:var(--border)] bg-[color:var(--surface-strong)] px-3.5 py-2.5 text-sm font-medium transition hover:border-[color:var(--accent)] hover:text-[color:var(--accent)]">
                 {dict.calendar.previousMonth}
               </Link>
               <Link href={`/calendar?date=${todayKey}`} className="inline-flex items-center justify-center rounded-full bg-[color:var(--accent)] px-3.5 py-2.5 text-sm font-medium text-[color:var(--accent-foreground)] transition hover:bg-[color:var(--accent-strong)]">
                 {dict.calendar.today}
               </Link>
-              <Link href={`/calendar?date=${nextMonth}`} className="inline-flex items-center justify-center rounded-full border border-[color:var(--border)] bg-white/84 px-3.5 py-2.5 text-sm font-medium transition hover:border-[color:var(--accent)] hover:text-[color:var(--accent)]">
+              <Link href={`/calendar?date=${nextMonth}`} className="inline-flex items-center justify-center rounded-full border border-[color:var(--border)] bg-[color:var(--surface-strong)] px-3.5 py-2.5 text-sm font-medium transition hover:border-[color:var(--accent)] hover:text-[color:var(--accent)]">
                 {dict.calendar.nextMonth}
               </Link>
             </div>
@@ -226,8 +304,8 @@ export default async function CalendarPage({ searchParams }: CalendarPageProps) 
                     isSelected
                       ? "border-[color:var(--accent-strong)] bg-[linear-gradient(180deg,#6a7cff,#5366ff)] text-[color:var(--accent-foreground)] shadow-[0_14px_30px_rgba(91,109,255,0.2)]"
                       : day.isCurrentMonth
-                        ? "border-[color:var(--border-soft)] bg-white/82 hover:border-[color:var(--accent-soft)] hover:bg-white"
-                        : "border-[color:var(--border-soft)] bg-white/46 text-[color:var(--muted)] hover:border-[color:var(--accent-soft)]"
+                        ? "border-[color:var(--border-soft)] bg-[color:var(--surface-strong)] hover:border-[color:var(--accent-soft)]"
+                        : "border-[color:var(--border-soft)] bg-[color:var(--surface)] text-[color:var(--muted)] hover:border-[color:var(--accent-soft)]"
                   }`}
                 >
                   <div className="flex items-start justify-between gap-2">
@@ -291,7 +369,7 @@ export default async function CalendarPage({ searchParams }: CalendarPageProps) 
 
             <div className="mt-5 grid grid-cols-2 gap-2.5">
               {stats.map((stat) => (
-                <div key={stat.label} className="rounded-[1.2rem] border border-white/10 bg-white/6 p-3.5">
+                <div key={stat.label} className="rounded-[1.2rem] border border-white/10 bg-white/8 p-3.5">
                   <p className="text-[10px] uppercase tracking-[0.2em] text-white/45">{stat.label}</p>
                   <p className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-white" style={{ fontFamily: "var(--font-heading)" }}>
                     {stat.value}
@@ -301,7 +379,7 @@ export default async function CalendarPage({ searchParams }: CalendarPageProps) 
             </div>
           </section>
 
-          <section className="rounded-[1.95rem] border border-[color:var(--border)] bg-[rgba(255,255,255,0.92)] p-5 shadow-[var(--shadow-md)] backdrop-blur-xl">
+          <section className="rounded-[1.95rem] border border-[color:var(--border)] bg-[color:var(--surface)] p-5 shadow-[var(--shadow-md)] backdrop-blur-xl">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-sm tracking-[0.16em] text-[color:var(--muted)]">{dict.calendar.slotsOfDay}</p>
@@ -330,7 +408,7 @@ export default async function CalendarPage({ searchParams }: CalendarPageProps) 
                         <p className="text-sm font-semibold text-[color:var(--foreground)]">{slot.slot}</p>
                         <p className="text-xs text-[color:var(--foreground-soft)]">{slot.occupiedCount}/{activeMasterCount || 0}</p>
                       </div>
-                      <div className="mt-2 h-2 rounded-full bg-white">
+                    <div className="mt-2 h-2 rounded-full bg-[color:var(--surface-strong)]">
                         <div
                           className={`h-full rounded-full ${slot.occupiedCount === 0 ? "bg-[color:var(--success)]" : slot.remainingCount === 0 ? "bg-[color:var(--warning)]" : "bg-[color:var(--accent)]"}`}
                           style={{ width: `${fillWidth}%` }}
@@ -346,7 +424,7 @@ export default async function CalendarPage({ searchParams }: CalendarPageProps) 
       </section>
 
       <section className="space-y-3">
-        <div className="rounded-[1.95rem] border border-[color:var(--border)] bg-[rgba(255,255,255,0.92)] p-5 shadow-[var(--shadow-md)] backdrop-blur-xl">
+        <div className="rounded-[1.95rem] border border-[color:var(--border)] bg-[color:var(--surface)] p-5 shadow-[var(--shadow-md)] backdrop-blur-xl">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <p className="text-sm tracking-[0.16em] text-[color:var(--muted)]">{dict.calendar.daySchedule}</p>
@@ -361,7 +439,7 @@ export default async function CalendarPage({ searchParams }: CalendarPageProps) 
                 `${freeSlots} ${dict.calendar.freeCount.toLowerCase()}`,
                 `${activeMasterCount} ${dict.calendar.masterCount.toLowerCase()}`,
               ].map((item) => (
-                <span key={item} className="rounded-full border border-[color:var(--border-soft)] bg-white px-3 py-1.5 text-sm text-[color:var(--foreground-soft)]">
+                <span key={item} className="rounded-full border border-[color:var(--border-soft)] bg-[color:var(--surface-strong)] px-3 py-1.5 text-sm text-[color:var(--foreground-soft)]">
                   {item}
                 </span>
               ))}
@@ -371,7 +449,7 @@ export default async function CalendarPage({ searchParams }: CalendarPageProps) 
 
         <div className="grid gap-3">
           {slotSummaries.length === 0 ? (
-            <article className="rounded-[1.7rem] border border-[color:var(--border)] bg-white p-6 shadow-[var(--shadow-md)]">
+            <article className="rounded-[1.7rem] border border-[color:var(--border)] bg-[color:var(--surface)] p-6 shadow-[var(--shadow-md)]">
               <p className="text-sm leading-7 text-[color:var(--foreground-soft)]">
                 {locale === "ru"
                   ? "На выбранный день у мастеров нет рабочих часов. Добавьте график на странице мастеров."
@@ -388,10 +466,10 @@ export default async function CalendarPage({ searchParams }: CalendarPageProps) 
               return (
                 <article
                   key={slot.slot}
-                  className={`rounded-[1.7rem] border shadow-[var(--shadow-md)] ${isBusy ? "border-[color:var(--border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(241,245,255,0.82))]" : "border-[rgba(53,201,120,0.16)] bg-[linear-gradient(180deg,rgba(251,255,253,0.98),rgba(235,251,242,0.88))]"}`}
+                className={`rounded-[1.7rem] border shadow-[var(--shadow-md)] ${isBusy ? "border-[color:var(--border)] bg-[linear-gradient(180deg,var(--surface-strong),var(--surface-muted))]" : "border-[rgba(53,201,120,0.16)] bg-[linear-gradient(180deg,var(--surface-strong),rgba(67,211,137,0.06))]"}`}
                 >
                   <div className="grid gap-4 p-4 lg:grid-cols-[180px_1fr]">
-                    <div className="rounded-[1.3rem] border border-[color:var(--border-soft)] bg-white/72 p-4">
+                    <div className="rounded-[1.3rem] border border-[color:var(--border-soft)] bg-[color:var(--surface-strong)] p-4">
                       <div className="flex items-center justify-between gap-3 lg:block">
                         <div>
                           <p className="text-[11px] uppercase tracking-[0.18em] text-[color:var(--muted)]">{dict.common.time}</p>
@@ -417,7 +495,7 @@ export default async function CalendarPage({ searchParams }: CalendarPageProps) 
                     </div>
 
                     {!isBusy ? (
-                      <div className="rounded-[1.35rem] border border-dashed border-[rgba(53,201,120,0.22)] bg-white/55 p-4 text-sm leading-6 text-[color:var(--foreground-soft)]">
+                      <div className="rounded-[1.35rem] border border-dashed border-[rgba(53,201,120,0.22)] bg-[color:var(--surface-strong)] p-4 text-sm leading-6 text-[color:var(--foreground-soft)]">
                         {dict.calendar.noSlotBookings}
                       </div>
                     ) : (

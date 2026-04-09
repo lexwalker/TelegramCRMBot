@@ -23,7 +23,7 @@ function isActivePath(pathname: string, href: string) {
 
 function Glyph({ glyph, active }: { glyph: NavItem["glyph"]; active: boolean }) {
   const tone = active
-    ? "bg-[linear-gradient(135deg,#f9fbff,#e0e7ff)] text-[color:var(--ink-dark)] shadow-[inset_0_1px_0_rgba(255,255,255,0.94)]"
+    ? "bg-[linear-gradient(180deg,rgba(104,123,255,0.34),rgba(79,97,214,0.18))] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_10px_24px_rgba(50,72,230,0.22)]"
     : "bg-white/10 text-white";
 
   if (glyph === "grid") {
@@ -81,7 +81,7 @@ export function AppNavigation({ items }: AppNavigationProps) {
             aria-current={isActive ? "page" : undefined}
             className={`group flex flex-col items-center gap-2.5 rounded-[1.5rem] border px-3 py-3 text-center transition duration-200 ${
               isActive
-                ? "border-white/12 bg-[linear-gradient(180deg,rgba(255,255,255,0.14),rgba(255,255,255,0.05))] text-white shadow-[0_18px_40px_rgba(0,0,0,0.22)]"
+                ? "border-[rgba(117,134,255,0.32)] bg-[linear-gradient(180deg,rgba(93,110,255,0.18),rgba(26,31,57,0.92))] text-white shadow-[0_18px_40px_rgba(0,0,0,0.28)]"
                 : "border-white/8 bg-transparent text-white/70 hover:border-white/12 hover:bg-white/6 hover:text-white"
             }`}
           >
