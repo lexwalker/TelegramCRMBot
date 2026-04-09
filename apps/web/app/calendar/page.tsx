@@ -1,11 +1,15 @@
 ﻿import Link from "next/link";
 import { StatusBadge } from "../../components/status-badge";
-import { listActiveMasters, listLeads } from "../../lib/leads";
+import {
+  listActiveMasters,
+  listDayTimeSlots,
+  listLeads,
+  listLeadsAffectingSlot,
+} from "../../lib/leads";
 import { getCurrentLocale, getDictionary, getLocaleTag } from "../../lib/i18n";
 
 export const dynamic = "force-dynamic";
 
-const TIME_SLOTS = ["10:00", "12:00", "14:00", "16:00", "18:00"] as const;
 const WEEKDAY_BASE = [0, 1, 2, 3, 4, 5, 6];
 
 type CalendarPageProps = {
@@ -47,27 +51,20 @@ function formatMonthLabel(dateKey: string, locale: "ru" | "en") {
   }).format(new Date(`${dateKey}T00:00:00+03:00`));
 }
 
-function shiftMonth(dateKey: string, shiftMonths: number, locale: "ru" | "en") {
+function shiftMonth(dateKey: string, shiftMonths: number) {
   const selected = parseDateKey(dateKey);
   const originalDay = selected.getUTCDate();
   const next = new Date(Date.UTC(selected.getUTCFullYear(), selected.getUTCMonth(), 1, 12));
   next.setUTCMonth(next.getUTCMonth() + shiftMonths);
 
-  const daysInTargetMonth = new Date(Date.UTC(next.getUTCFullYear(), next.getUTCMonth() + 1, 0, 12)).getUTCDate();
+  const daysInTargetMonth = new Date(
+    Date.UTC(next.getUTCFullYear(), next.getUTCMonth() + 1, 0, 12),
+  ).getUTCDate();
   next.setUTCDate(Math.min(originalDay, daysInTargetMonth));
   return getDateKey(next);
 }
 
-function getTimeLabel(appointmentAt: string, locale: "ru" | "en") {
-  return new Intl.DateTimeFormat(getLocaleTag(locale), {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-    timeZone: "Europe/Moscow",
-  }).format(new Date(appointmentAt));
-}
-
-function isSameDay(appointmentAt: string | null, dateKey: string, locale: "ru" | "en") {
+function isSameDay(appointmentAt: string | null, dateKey: string) {
   if (!appointmentAt) {
     return false;
   }
@@ -75,22 +72,7 @@ function isSameDay(appointmentAt: string | null, dateKey: string, locale: "ru" |
   return getDateKey(new Date(appointmentAt)) === dateKey;
 }
 
-function getSlotLeads(
-  leads: Awaited<ReturnType<typeof listLeads>>,
-  dateKey: string,
-  slot: string,
-  locale: "ru" | "en",
-) {
-  return leads.filter((lead) => {
-    if (!isSameDay(lead.appointmentAt, dateKey, locale) || !lead.appointmentAt) {
-      return false;
-    }
-
-    return getTimeLabel(lead.appointmentAt, locale) === slot;
-  });
-}
-
-function getMonthDays(selectedDate: string, locale: "ru" | "en") {
+function getMonthDays(selectedDate: string) {
   const selected = parseDateKey(selectedDate);
   const monthStart = new Date(Date.UTC(selected.getUTCFullYear(), selected.getUTCMonth(), 1, 12));
   const startOffset = (monthStart.getUTCDay() + 6) % 7;
@@ -109,7 +91,7 @@ function getMonthDays(selectedDate: string, locale: "ru" | "en") {
   });
 }
 
-function getLeadCountByDate(leads: Awaited<ReturnType<typeof listLeads>>, locale: "ru" | "en") {
+function getLeadCountByDate(leads: Awaited<ReturnType<typeof listLeads>>) {
   const counts = new Map<string, number>();
 
   for (const lead of leads) {
@@ -122,17 +104,6 @@ function getLeadCountByDate(leads: Awaited<ReturnType<typeof listLeads>>, locale
   }
 
   return counts;
-}
-
-function getFreeSlotsCount(
-  leads: Awaited<ReturnType<typeof listLeads>>,
-  dateKey: string,
-  activeMasterCount: number,
-  locale: "ru" | "en",
-) {
-  return TIME_SLOTS.filter(
-    (slot) => getSlotLeads(leads, dateKey, slot, locale).length < activeMasterCount,
-  ).length;
 }
 
 function getWeekdayLabels(locale: "ru" | "en") {
@@ -150,28 +121,32 @@ export default async function CalendarPage({ searchParams }: CalendarPageProps) 
   const dict = getDictionary(locale);
   const resolvedSearchParams = (await searchParams) ?? {};
   const selectedDate = resolvedSearchParams.date ?? getTodayKey();
-  const leads = await listLeads();
-  const activeMasters = await listActiveMasters();
+  const [leads, activeMasters] = await Promise.all([listLeads(), listActiveMasters()]);
   const activeMasterCount = activeMasters.length;
-  const dayLeads = leads.filter((lead) => isSameDay(lead.appointmentAt, selectedDate, locale));
-  const freeSlots = getFreeSlotsCount(leads, selectedDate, activeMasterCount, locale);
+  const dayLeads = leads.filter((lead) => isSameDay(lead.appointmentAt, selectedDate));
   const todayKey = getTodayKey();
-  const monthDays = getMonthDays(selectedDate, locale);
-  const leadCountByDate = getLeadCountByDate(leads, locale);
-  const previousMonth = shiftMonth(selectedDate, -1, locale);
-  const nextMonth = shiftMonth(selectedDate, 1, locale);
+  const monthDays = getMonthDays(selectedDate);
+  const leadCountByDate = getLeadCountByDate(leads);
+  const previousMonth = shiftMonth(selectedDate, -1);
+  const nextMonth = shiftMonth(selectedDate, 1);
   const weekdayLabels = getWeekdayLabels(locale);
-  const slotSummaries = TIME_SLOTS.map((slot) => {
-    const slotLeads = getSlotLeads(leads, selectedDate, slot, locale);
-    return {
-      slot,
-      leads: slotLeads,
-      occupiedCount: slotLeads.length,
-      remainingCount: Math.max(activeMasterCount - slotLeads.length, 0),
-    };
-  });
+  const daySlots = await listDayTimeSlots(selectedDate);
+
+  const slotSummaries = await Promise.all(
+    daySlots.map(async (slot) => {
+      const slotLeads = await listLeadsAffectingSlot(selectedDate, slot);
+      return {
+        slot,
+        leads: slotLeads,
+        occupiedCount: slotLeads.length,
+        remainingCount: Math.max(activeMasterCount - slotLeads.length, 0),
+      };
+    }),
+  );
+
+  const freeSlots = slotSummaries.filter((slot) => slot.occupiedCount < activeMasterCount).length;
   const bookedCapacity = slotSummaries.reduce((sum, slot) => sum + slot.occupiedCount, 0);
-  const totalCapacity = activeMasterCount * TIME_SLOTS.length;
+  const totalCapacity = activeMasterCount * daySlots.length;
   const utilization = totalCapacity ? Math.round((bookedCapacity / totalCapacity) * 100) : 0;
   const stats = [
     { label: dict.calendar.appointmentCount, value: dayLeads.length },
@@ -179,6 +154,31 @@ export default async function CalendarPage({ searchParams }: CalendarPageProps) 
     { label: dict.calendar.freeCount, value: freeSlots },
     { label: dict.calendar.utilization, value: `${utilization}%` },
   ];
+
+  const monthCells = await Promise.all(
+    monthDays.map(async (day) => {
+      const slotsForDay = await listDayTimeSlots(day.key);
+      const slotStates = await Promise.all(
+        slotsForDay.map(async (slot) => {
+          const slotLeads = await listLeadsAffectingSlot(day.key, slot);
+          return {
+            slot,
+            isBusy: slotLeads.length > 0,
+            isFull: activeMasterCount > 0 && slotLeads.length >= activeMasterCount,
+          };
+        }),
+      );
+      const freeCountByDay = slotStates.filter((slot) => !slot.isFull).length;
+      const leadCount = leadCountByDate.get(day.key) ?? 0;
+
+      return {
+        ...day,
+        leadCount,
+        freeCountByDay,
+        slotStates,
+      };
+    }),
+  );
 
   return (
     <main className="space-y-5">
@@ -213,12 +213,10 @@ export default async function CalendarPage({ searchParams }: CalendarPageProps) 
               </div>
             ))}
 
-            {monthDays.map((day) => {
-              const leadCount = leadCountByDate.get(day.key) ?? 0;
-              const freeCountByDay = getFreeSlotsCount(leads, day.key, activeMasterCount, locale);
+            {monthCells.map((day) => {
               const isSelected = day.key === selectedDate;
               const isToday = day.key === todayKey;
-              const isFullDay = leadCount > 0 && activeMasterCount > 0 && freeCountByDay === 0;
+              const isFullDay = day.leadCount > 0 && activeMasterCount > 0 && day.freeCountByDay === 0;
 
               return (
                 <Link
@@ -241,43 +239,41 @@ export default async function CalendarPage({ searchParams }: CalendarPageProps) 
                       <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.14em] ${isSelected ? "bg-white/16 text-[color:var(--accent-foreground-soft)]" : "bg-[color:var(--surface-contrast)] text-[color:var(--accent-strong)]"}`}>
                         {dict.calendar.today}
                       </span>
-                    ) : leadCount > 0 ? (
+                    ) : day.leadCount > 0 ? (
                       <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${isSelected ? "bg-white/16 text-[color:var(--accent-foreground-soft)]" : "bg-[color:var(--surface-muted)] text-[color:var(--foreground-soft)]"}`}>
-                        {leadCount}
+                        {day.leadCount}
                       </span>
                     ) : null}
                   </div>
 
                   <div className="mt-auto">
                     <div className="flex items-center gap-1">
-                      {TIME_SLOTS.map((slot) => {
-                        const slotLeads = getSlotLeads(leads, day.key, slot, locale);
-                        const isBusy = slotLeads.length > 0;
-                        const isSlotFull = activeMasterCount > 0 && slotLeads.length >= activeMasterCount;
-
-                        return (
+                      {day.slotStates.length === 0 ? (
+                        <span className={`h-1.5 flex-1 rounded-full ${isSelected ? "bg-white/20" : "bg-black/8"}`} />
+                      ) : (
+                        day.slotStates.slice(0, 6).map((slot) => (
                           <span
-                            key={`${day.key}-${slot}`}
+                            key={`${day.key}-${slot.slot}`}
                             className={`h-1.5 flex-1 rounded-full ${
                               isSelected
-                                ? isSlotFull
+                                ? slot.isFull
                                   ? "bg-[rgba(255,207,152,0.94)]"
-                                  : isBusy
+                                  : slot.isBusy
                                     ? "bg-white"
                                     : "bg-white/20"
-                                : isSlotFull
+                                : slot.isFull
                                   ? "bg-[color:var(--warning)]"
-                                  : isBusy
+                                  : slot.isBusy
                                     ? "bg-[color:var(--accent)]"
                                     : "bg-black/8"
                             }`}
                           />
-                        );
-                      })}
+                        ))
+                      )}
                     </div>
 
                     <div className={`mt-2 text-[11px] leading-4 ${isSelected ? "text-[color:var(--accent-foreground-soft)]" : isFullDay ? "text-[color:var(--danger)]" : "text-[color:var(--foreground-soft)]"}`}>
-                      {leadCount === 0 ? dict.calendar.free : isFullDay ? dict.calendar.dayFull : `${freeCountByDay} ${dict.calendar.monthFreeShort}`}
+                      {day.leadCount === 0 ? dict.calendar.free : isFullDay ? dict.calendar.dayFull : `${day.freeCountByDay} ${dict.calendar.monthFreeShort}`}
                     </div>
                   </div>
                 </Link>
@@ -319,25 +315,31 @@ export default async function CalendarPage({ searchParams }: CalendarPageProps) 
             </div>
 
             <div className="mt-4 space-y-2.5">
-              {slotSummaries.map((slot) => {
-                const progress = activeMasterCount ? Math.round((slot.occupiedCount / activeMasterCount) * 100) : 0;
-                const fillWidth = slot.occupiedCount === 0 ? 10 : Math.max(14, progress);
+              {slotSummaries.length === 0 ? (
+                <div className="rounded-[1.2rem] border border-[color:var(--border-soft)] bg-[color:var(--surface-muted)] p-4 text-sm text-[color:var(--foreground-soft)]">
+                  {locale === "ru" ? "На этот день пока не задано рабочих часов." : "No working hours are configured for this day yet."}
+                </div>
+              ) : (
+                slotSummaries.map((slot) => {
+                  const progress = activeMasterCount ? Math.round((slot.occupiedCount / activeMasterCount) * 100) : 0;
+                  const fillWidth = slot.occupiedCount === 0 ? 10 : Math.max(14, progress);
 
-                return (
-                  <div key={slot.slot} className="rounded-[1.2rem] border border-[color:var(--border-soft)] bg-[color:var(--surface-muted)] p-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="text-sm font-semibold text-[color:var(--foreground)]">{slot.slot}</p>
-                      <p className="text-xs text-[color:var(--foreground-soft)]">{slot.occupiedCount}/{activeMasterCount || 0}</p>
+                  return (
+                    <div key={slot.slot} className="rounded-[1.2rem] border border-[color:var(--border-soft)] bg-[color:var(--surface-muted)] p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-sm font-semibold text-[color:var(--foreground)]">{slot.slot}</p>
+                        <p className="text-xs text-[color:var(--foreground-soft)]">{slot.occupiedCount}/{activeMasterCount || 0}</p>
+                      </div>
+                      <div className="mt-2 h-2 rounded-full bg-white">
+                        <div
+                          className={`h-full rounded-full ${slot.occupiedCount === 0 ? "bg-[color:var(--success)]" : slot.remainingCount === 0 ? "bg-[color:var(--warning)]" : "bg-[color:var(--accent)]"}`}
+                          style={{ width: `${fillWidth}%` }}
+                        />
+                      </div>
                     </div>
-                    <div className="mt-2 h-2 rounded-full bg-white">
-                      <div
-                        className={`h-full rounded-full ${slot.occupiedCount === 0 ? "bg-[color:var(--success)]" : slot.remainingCount === 0 ? "bg-[color:var(--warning)]" : "bg-[color:var(--accent)]"}`}
-                        style={{ width: `${fillWidth}%` }}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                })
+              )}
             </div>
           </section>
         </div>
@@ -368,79 +370,91 @@ export default async function CalendarPage({ searchParams }: CalendarPageProps) 
         </div>
 
         <div className="grid gap-3">
-          {slotSummaries.map((slot) => {
-            const occupiedCount = slot.occupiedCount;
-            const isBusy = occupiedCount > 0;
-            const isFull = activeMasterCount > 0 && occupiedCount >= activeMasterCount;
-            const progress = activeMasterCount > 0 ? `${Math.min(100, Math.round((occupiedCount / activeMasterCount) * 100))}%` : "0%";
+          {slotSummaries.length === 0 ? (
+            <article className="rounded-[1.7rem] border border-[color:var(--border)] bg-white p-6 shadow-[var(--shadow-md)]">
+              <p className="text-sm leading-7 text-[color:var(--foreground-soft)]">
+                {locale === "ru"
+                  ? "На выбранный день у мастеров нет рабочих часов. Добавьте график на странице мастеров."
+                  : "Staff have no working hours for the selected day. Add a schedule on the staff page."}
+              </p>
+            </article>
+          ) : (
+            slotSummaries.map((slot) => {
+              const occupiedCount = slot.occupiedCount;
+              const isBusy = occupiedCount > 0;
+              const isFull = activeMasterCount > 0 && occupiedCount >= activeMasterCount;
+              const progress = activeMasterCount > 0 ? `${Math.min(100, Math.round((occupiedCount / activeMasterCount) * 100))}%` : "0%";
 
-            return (
-              <article
-                key={slot.slot}
-                className={`rounded-[1.7rem] border shadow-[var(--shadow-md)] ${isBusy ? "border-[color:var(--border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(241,245,255,0.82))]" : "border-[rgba(53,201,120,0.16)] bg-[linear-gradient(180deg,rgba(251,255,253,0.98),rgba(235,251,242,0.88))]"}`}
-              >
-                <div className="grid gap-4 p-4 lg:grid-cols-[180px_1fr]">
-                  <div className="rounded-[1.3rem] border border-[color:var(--border-soft)] bg-white/72 p-4">
-                    <div className="flex items-center justify-between gap-3 lg:block">
-                      <div>
-                        <p className="text-[11px] uppercase tracking-[0.18em] text-[color:var(--muted)]">{dict.common.time}</p>
-                        <h4 className="mt-1 text-2xl font-semibold tracking-[-0.04em] text-[color:var(--foreground)]" style={{ fontFamily: "var(--font-heading)" }}>
-                          {slot.slot}
-                        </h4>
-                      </div>
-
-                      <span className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] ${isFull ? "border-[rgba(255,189,99,0.2)] bg-[color:var(--warning-soft)] text-[#d98924]" : isBusy ? "border-[rgba(91,109,255,0.16)] bg-[color:var(--accent-soft)] text-[color:var(--accent-strong)]" : "border-[rgba(53,201,120,0.18)] bg-[color:var(--success-soft)] text-[color:var(--success)]"}`}>
-                        {isFull ? dict.calendar.full : isBusy ? dict.calendar.partial : dict.calendar.free}
-                      </span>
-                    </div>
-
-                    <div className="mt-4">
-                      <div className="flex items-center justify-between text-xs text-[color:var(--foreground-soft)]">
-                        <span>{dict.calendar.slotLoad}</span>
-                        <span>{occupiedCount}/{activeMasterCount}</span>
-                      </div>
-                      <div className="mt-2 h-2 overflow-hidden rounded-full bg-black/8">
-                        <div className={`h-full rounded-full ${isFull ? "bg-[color:var(--warning)]" : isBusy ? "bg-[color:var(--accent)]" : "bg-[color:var(--success)]"}`} style={{ width: progress }} />
-                      </div>
-                    </div>
-                  </div>
-
-                  {!isBusy ? (
-                    <div className="rounded-[1.35rem] border border-dashed border-[rgba(53,201,120,0.22)] bg-white/55 p-4 text-sm leading-6 text-[color:var(--foreground-soft)]">
-                      {dict.calendar.noSlotBookings}
-                    </div>
-                  ) : (
-                    <div className="grid gap-3">
-                      {slot.leads.map((lead) => (
-                        <div key={lead.id} className="rounded-[1.35rem] border border-[color:var(--border-soft)] bg-[color:var(--surface-strong)] p-4">
-                          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                            <div className="min-w-0">
-                              <div className="flex flex-wrap items-center gap-2.5">
-                                <h5 className="text-lg font-semibold tracking-[-0.03em] text-[color:var(--foreground)]" style={{ fontFamily: "var(--font-heading)" }}>
-                                  {lead.name}
-                                </h5>
-                                <StatusBadge status={lead.status} locale={locale} />
-                              </div>
-                              <div className="mt-2 flex flex-wrap gap-2 text-sm text-[color:var(--foreground-soft)]">
-                                <span>{lead.phone}</span>
-                                <span>•</span>
-                                <span>{dict.common.master}: {lead.master?.name ?? dict.common.noMaster}</span>
-                              </div>
-                              <p className="mt-2 line-clamp-2 text-sm leading-6 text-[color:var(--foreground-soft)]">{lead.comment}</p>
-                            </div>
-
-                            <Link href={`/leads/${lead.id}`} className="inline-flex items-center justify-center rounded-full bg-[color:var(--accent)] px-4 py-2 text-sm font-medium text-[color:var(--accent-foreground)] transition hover:bg-[color:var(--accent-strong)]">
-                              {dict.common.openLead}
-                            </Link>
-                          </div>
+              return (
+                <article
+                  key={slot.slot}
+                  className={`rounded-[1.7rem] border shadow-[var(--shadow-md)] ${isBusy ? "border-[color:var(--border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(241,245,255,0.82))]" : "border-[rgba(53,201,120,0.16)] bg-[linear-gradient(180deg,rgba(251,255,253,0.98),rgba(235,251,242,0.88))]"}`}
+                >
+                  <div className="grid gap-4 p-4 lg:grid-cols-[180px_1fr]">
+                    <div className="rounded-[1.3rem] border border-[color:var(--border-soft)] bg-white/72 p-4">
+                      <div className="flex items-center justify-between gap-3 lg:block">
+                        <div>
+                          <p className="text-[11px] uppercase tracking-[0.18em] text-[color:var(--muted)]">{dict.common.time}</p>
+                          <h4 className="mt-1 text-2xl font-semibold tracking-[-0.04em] text-[color:var(--foreground)]" style={{ fontFamily: "var(--font-heading)" }}>
+                            {slot.slot}
+                          </h4>
                         </div>
-                      ))}
+
+                        <span className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] ${isFull ? "border-[rgba(255,189,99,0.2)] bg-[color:var(--warning-soft)] text-[#d98924]" : isBusy ? "border-[rgba(91,109,255,0.16)] bg-[color:var(--accent-soft)] text-[color:var(--accent-strong)]" : "border-[rgba(53,201,120,0.18)] bg-[color:var(--success-soft)] text-[color:var(--success)]"}`}>
+                          {isFull ? dict.calendar.full : isBusy ? dict.calendar.partial : dict.calendar.free}
+                        </span>
+                      </div>
+
+                      <div className="mt-4">
+                        <div className="flex items-center justify-between text-xs text-[color:var(--foreground-soft)]">
+                          <span>{dict.calendar.slotLoad}</span>
+                          <span>{occupiedCount}/{activeMasterCount}</span>
+                        </div>
+                        <div className="mt-2 h-2 overflow-hidden rounded-full bg-black/8">
+                          <div className={`h-full rounded-full ${isFull ? "bg-[color:var(--warning)]" : isBusy ? "bg-[color:var(--accent)]" : "bg-[color:var(--success)]"}`} style={{ width: progress }} />
+                        </div>
+                      </div>
                     </div>
-                  )}
-                </div>
-              </article>
-            );
-          })}
+
+                    {!isBusy ? (
+                      <div className="rounded-[1.35rem] border border-dashed border-[rgba(53,201,120,0.22)] bg-white/55 p-4 text-sm leading-6 text-[color:var(--foreground-soft)]">
+                        {dict.calendar.noSlotBookings}
+                      </div>
+                    ) : (
+                      <div className="grid gap-3">
+                        {slot.leads.map((lead) => (
+                          <div key={`${slot.slot}-${lead.id}`} className="rounded-[1.35rem] border border-[color:var(--border-soft)] bg-[color:var(--surface-strong)] p-4">
+                            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                              <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-2.5">
+                                  <h5 className="text-lg font-semibold tracking-[-0.03em] text-[color:var(--foreground)]" style={{ fontFamily: "var(--font-heading)" }}>
+                                    {lead.name}
+                                  </h5>
+                                  <StatusBadge status={lead.status} locale={locale} />
+                                </div>
+                                <div className="mt-2 flex flex-wrap gap-2 text-sm text-[color:var(--foreground-soft)]">
+                                  <span>{lead.phone}</span>
+                                  <span>•</span>
+                                  <span>{dict.common.master}: {lead.master?.name ?? dict.common.noMaster}</span>
+                                  <span>•</span>
+                                  <span>{lead.service?.name ?? (locale === "ru" ? "Без услуги" : "No service")}</span>
+                                </div>
+                                <p className="mt-2 line-clamp-2 text-sm leading-6 text-[color:var(--foreground-soft)]">{lead.comment}</p>
+                              </div>
+
+                              <Link href={`/leads/${lead.id}`} className="inline-flex items-center justify-center rounded-full bg-[color:var(--accent)] px-4 py-2 text-sm font-medium text-[color:var(--accent-foreground)] transition hover:bg-[color:var(--accent-strong)]">
+                                {dict.common.openLead}
+                              </Link>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </article>
+              );
+            })
+          )}
         </div>
       </section>
     </main>

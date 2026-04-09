@@ -1,4 +1,4 @@
-import "dotenv/config";
+﻿import "dotenv/config";
 import { execFileSync } from "node:child_process";
 import {
   Bot,
@@ -11,22 +11,30 @@ import {
   countLeads,
   createLead,
   getLatestBookedLeadByTelegramId,
-  isAppointmentSlotAvailable,
+  listActiveServices,
+  listAvailableDateKeys,
+  listAvailableTimeSlotsForDate,
   updateLeadAppointment,
 } from "@crm-bot/db";
 import { HttpsProxyAgent } from "https-proxy-agent";
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const maskedToken = token ? `${token.slice(0, 10)}...` : "missing";
-const MOSCOW_TIMEZONE = "Europe/Moscow";
-const MOSCOW_OFFSET = "+03:00";
 const DATE_OPTIONS_DAYS = 7;
-const TIME_SLOTS = ["10:00", "12:00", "14:00", "16:00", "18:00"] as const;
 
-type LeadFormStep = "idle" | "name" | "phone" | "comment" | "date" | "time";
+type LeadFormStep =
+  | "idle"
+  | "service"
+  | "name"
+  | "phone"
+  | "comment"
+  | "date"
+  | "time";
 type BookingMode = "create" | "reschedule";
 
 type LeadDraft = {
+  serviceId: string | null;
+  serviceName: string | null;
   name: string;
   phone: string;
   comment: string;
@@ -37,6 +45,7 @@ type LeadSession = {
   step: LeadFormStep;
   bookingMode: BookingMode;
   targetLeadId: string | null;
+  targetServiceId: string | null;
   draft: LeadDraft;
 };
 
@@ -74,9 +83,7 @@ function getWindowsProxyUrl() {
     }
 
     const proxyValue = match[1].trim();
-    const firstProxy = proxyValue.includes(";")
-      ? proxyValue.split(";")[0]
-      : proxyValue;
+    const firstProxy = proxyValue.includes(";") ? proxyValue.split(";")[0] : proxyValue;
 
     if (firstProxy.includes("=")) {
       const httpsMatch = firstProxy.match(/https=([^;]+)/i);
@@ -92,10 +99,7 @@ function getWindowsProxyUrl() {
 }
 
 function resolveProxyUrl() {
-  const envProxy =
-    process.env.HTTPS_PROXY ??
-    process.env.HTTP_PROXY ??
-    process.env.ALL_PROXY;
+  const envProxy = process.env.HTTPS_PROXY ?? process.env.HTTP_PROXY ?? process.env.ALL_PROXY;
 
   if (envProxy) {
     return normalizeProxyUrl(envProxy);
@@ -109,7 +113,10 @@ function getInitialSession(): LeadSession {
     step: "idle",
     bookingMode: "create",
     targetLeadId: null,
+    targetServiceId: null,
     draft: {
+      serviceId: null,
+      serviceName: null,
       name: "",
       phone: "",
       comment: "",
@@ -127,28 +134,13 @@ function normalizePhone(phone: string) {
   return phone.trim();
 }
 
-function getUpcomingDateKeys() {
-  const formatter = new Intl.DateTimeFormat("sv-SE", {
-    timeZone: MOSCOW_TIMEZONE,
-  });
-  const dates: string[] = [];
-
-  for (let dayOffset = 0; dayOffset < DATE_OPTIONS_DAYS; dayOffset += 1) {
-    const date = new Date();
-    date.setUTCDate(date.getUTCDate() + dayOffset);
-    dates.push(formatter.format(date));
-  }
-
-  return dates;
-}
-
 function formatDateLabel(dateKey: string) {
-  const date = new Date(`${dateKey}T00:00:00${MOSCOW_OFFSET}`);
+  const date = new Date(`${dateKey}T00:00:00+03:00`);
   const formatted = new Intl.DateTimeFormat("ru-RU", {
     weekday: "short",
     day: "numeric",
     month: "long",
-    timeZone: MOSCOW_TIMEZONE,
+    timeZone: "Europe/Moscow",
   }).format(date);
 
   return formatted.charAt(0).toUpperCase() + formatted.slice(1);
@@ -158,31 +150,48 @@ function formatAppointment(appointmentAt: string) {
   return new Intl.DateTimeFormat("ru-RU", {
     dateStyle: "full",
     timeStyle: "short",
-    timeZone: MOSCOW_TIMEZONE,
+    timeZone: "Europe/Moscow",
   }).format(new Date(appointmentAt));
 }
 
 function buildAppointmentIso(dateKey: string, time: string) {
-  return `${dateKey}T${time}:00${MOSCOW_OFFSET}`;
+  return `${dateKey}T${time}:00+03:00`;
 }
 
-function getAvailableTimeSlots(dateKey: string, excludeLeadId?: string | null) {
-  return TIME_SLOTS.filter((time) =>
-    isAppointmentSlotAvailable(buildAppointmentIso(dateKey, time), {
-      excludeLeadId,
-    }),
-  );
+function getTelegramId(ctx: BotContext) {
+  return ctx.from?.id ? String(ctx.from.id) : null;
 }
 
-function getAvailableDateKeys(excludeLeadId?: string | null) {
-  return getUpcomingDateKeys().filter(
-    (dateKey) => getAvailableTimeSlots(dateKey, excludeLeadId).length > 0,
-  );
-}
-
-function buildDateKeyboard(excludeLeadId?: string | null) {
+function buildServiceKeyboard() {
   const keyboard = new InlineKeyboard();
-  const dateKeys = getAvailableDateKeys(excludeLeadId);
+  const services = listActiveServices();
+
+  services.forEach((service, index) => {
+    const priceLabel = service.price == null ? "цена уточняется" : `${service.price} ₽`;
+    keyboard.text(
+      `${service.name} • ${service.durationMinutes} мин • ${priceLabel}`,
+      `service:${service.id}`,
+    );
+
+    if (index < services.length - 1) {
+      keyboard.row();
+    }
+  });
+
+  return keyboard;
+}
+
+function getFlowServiceId(ctx: BotContext) {
+  return ctx.session.bookingMode === "reschedule"
+    ? ctx.session.targetServiceId
+    : ctx.session.draft.serviceId;
+}
+
+function buildDateKeyboard(serviceId: string | null, excludeLeadId?: string | null) {
+  const keyboard = new InlineKeyboard();
+  const dateKeys = serviceId
+    ? listAvailableDateKeys(DATE_OPTIONS_DAYS, serviceId, { excludeLeadId })
+    : [];
 
   if (dateKeys.length === 0) {
     keyboard.text("Отмена", "booking:cancel");
@@ -201,14 +210,20 @@ function buildDateKeyboard(excludeLeadId?: string | null) {
   return keyboard;
 }
 
-function buildTimeKeyboard(dateKey: string, excludeLeadId?: string | null) {
+function buildTimeKeyboard(
+  dateKey: string,
+  serviceId: string | null,
+  excludeLeadId?: string | null,
+) {
   const keyboard = new InlineKeyboard();
-  const availableTimeSlots = getAvailableTimeSlots(dateKey, excludeLeadId);
+  const availableTimeSlots = serviceId
+    ? listAvailableTimeSlotsForDate(dateKey, serviceId, { excludeLeadId })
+    : [];
 
   availableTimeSlots.forEach((time, index) => {
     keyboard.text(time, `time:${time}`);
 
-    if (index % 2 === 1 || index === TIME_SLOTS.length - 1) {
+    if (index % 2 === 1 || index === availableTimeSlots.length - 1) {
       keyboard.row();
     }
   });
@@ -227,21 +242,22 @@ function buildCancelBookingKeyboard(leadId: string) {
 async function showDateSelection(ctx: BotContext) {
   ctx.session.step = "date";
   ctx.session.draft.selectedDate = null;
-  const excludeLeadId =
-    ctx.session.bookingMode === "reschedule" ? ctx.session.targetLeadId : null;
-  const availableDateKeys = getAvailableDateKeys(excludeLeadId);
-
+  const excludeLeadId = ctx.session.bookingMode === "reschedule" ? ctx.session.targetLeadId : null;
+  const serviceId = getFlowServiceId(ctx);
+  const availableDateKeys = serviceId
+    ? listAvailableDateKeys(DATE_OPTIONS_DAYS, serviceId, { excludeLeadId })
+    : [];
   const title =
     ctx.session.bookingMode === "reschedule"
       ? "Выберите новый день записи."
       : "Выберите удобный день записи.";
 
-  if (availableDateKeys.length === 0) {
+  if (!serviceId || availableDateKeys.length === 0) {
     ctx.session = getInitialSession();
     await ctx.reply(
       [
-        "Свободных слотов на ближайшие 7 дней сейчас нет.",
-        "Попробуйте позже или свяжитесь с менеджером.",
+        "Пока не вижу свободных слотов под эту услугу на ближайшие 7 дней.",
+        "Попробуйте чуть позже или напишите менеджеру, и мы постараемся подобрать время вручную.",
       ].join("\n"),
     );
     return;
@@ -249,13 +265,11 @@ async function showDateSelection(ctx: BotContext) {
 
   await ctx.reply(
     [
-      `Шаг ${ctx.session.bookingMode === "reschedule" ? "1" : "4"} из ${
-        ctx.session.bookingMode === "reschedule" ? "2" : "5"
-      }. ${title}`,
-      "Показываю ближайшие 7 дней.",
+      `Шаг ${ctx.session.bookingMode === "reschedule" ? "1" : "5"} из ${ctx.session.bookingMode === "reschedule" ? "2" : "6"}. ${title}`,
+      "Показываю ближайшие 7 дней, где ещё есть свободное время.",
     ].join("\n"),
     {
-      reply_markup: buildDateKeyboard(excludeLeadId),
+      reply_markup: buildDateKeyboard(serviceId, excludeLeadId),
     },
   );
 }
@@ -265,7 +279,7 @@ async function moveFromPhoneToComment(ctx: BotContext, rawPhone: string) {
 
   if (!isPhoneValid(phone)) {
     await ctx.reply(
-      "Телефон выглядит слишком коротким. Отправьте номер еще раз, например +79991234567.",
+      "Похоже, номер получился слишком коротким. Отправьте его ещё раз, пожалуйста, например в формате +79991234567.",
     );
     return;
   }
@@ -273,11 +287,7 @@ async function moveFromPhoneToComment(ctx: BotContext, rawPhone: string) {
   ctx.session.draft.phone = phone;
   ctx.session.step = "comment";
 
-  await ctx.reply("Шаг 3 из 5. Коротко опишите ваш запрос.");
-}
-
-function getTelegramId(ctx: BotContext) {
-  return ctx.from?.id ? String(ctx.from.id) : null;
+  await ctx.reply("Шаг 4 из 6. Коротко расскажите, с чем вам помочь.");
 }
 
 if (!token) {
@@ -307,16 +317,26 @@ if (!token) {
   );
 
   async function startLeadFlow(ctx: BotContext) {
+    const services = listActiveServices();
+
+    if (services.length === 0) {
+      await ctx.reply("Сейчас услуги для записи ещё не настроены. Напишите менеджеру, и он быстро всё подготовит.");
+      return;
+    }
+
     ctx.session = getInitialSession();
     ctx.session.bookingMode = "create";
-    ctx.session.step = "name";
+    ctx.session.step = "service";
 
     await ctx.reply(
       [
-        "Привет. Я помогу оставить заявку.",
+        "Здравствуйте. Я помогу быстро оставить заявку и выбрать удобное время.",
         "",
-        "Шаг 1 из 5. Напишите ваше имя.",
+        "Шаг 1 из 6. Для начала выберите услугу.",
       ].join("\n"),
+      {
+        reply_markup: buildServiceKeyboard(),
+      },
     );
   }
 
@@ -327,8 +347,8 @@ if (!token) {
     ctx.session = getInitialSession();
     await ctx.reply(
       [
-        "Текущая операция отменена.",
-        "Чтобы начать заново, отправьте /start",
+        "Хорошо, текущую операцию отменил.",
+        "Когда будете готовы начать заново, просто отправьте /start.",
       ].join("\n"),
     );
   });
@@ -342,7 +362,7 @@ if (!token) {
     const telegramId = getTelegramId(ctx);
 
     if (!telegramId) {
-      await ctx.reply("Не удалось определить ваш Telegram ID.");
+      await ctx.reply("Не смог определить ваш Telegram-профиль. Попробуйте ещё раз чуть позже.");
       return;
     }
 
@@ -350,7 +370,7 @@ if (!token) {
 
     if (!lead || !lead.appointmentAt) {
       await ctx.reply(
-        "Активной записи не найдено. Чтобы создать новую, отправьте /start.",
+        "Пока не вижу активной записи для переноса. Если хотите оформить новую, отправьте /start.",
       );
       return;
     }
@@ -358,11 +378,13 @@ if (!token) {
     ctx.session = getInitialSession();
     ctx.session.bookingMode = "reschedule";
     ctx.session.targetLeadId = lead.id;
+    ctx.session.targetServiceId = lead.serviceId;
 
     await ctx.reply(
       [
-        "Нашел вашу последнюю запись.",
-        `Сейчас запись стоит на: ${formatAppointment(lead.appointmentAt)}`,
+        "Нашёл вашу последнюю запись.",
+        `Услуга: ${lead.service?.name ?? "не указана"}`,
+        `Сейчас вы записаны на: ${formatAppointment(lead.appointmentAt)}`,
       ].join("\n"),
     );
 
@@ -373,20 +395,20 @@ if (!token) {
     const telegramId = getTelegramId(ctx);
 
     if (!telegramId) {
-      await ctx.reply("Не удалось определить ваш Telegram ID.");
+      await ctx.reply("Не смог определить ваш Telegram-профиль. Попробуйте ещё раз чуть позже.");
       return;
     }
 
     const lead = getLatestBookedLeadByTelegramId(telegramId);
 
     if (!lead || !lead.appointmentAt) {
-      await ctx.reply("Активной записи для отмены не найдено.");
+      await ctx.reply("Сейчас не вижу активной записи, которую можно отменить.");
       return;
     }
 
     await ctx.reply(
       [
-        "Подтвердите отмену записи.",
+        "Пожалуйста, подтвердите отмену записи.",
         `Текущая запись: ${formatAppointment(lead.appointmentAt)}`,
       ].join("\n"),
       {
@@ -400,15 +422,15 @@ if (!token) {
     await ctx.answerCallbackQuery({ text: "Операция отменена" });
     await ctx.editMessageText(
       [
-        "Операция отменена.",
-        "Если захотите начать заново, отправьте /start",
+        "Хорошо, операцию отменил.",
+        "Если захотите начать заново, просто отправьте /start.",
       ].join("\n"),
     );
   });
 
   bot.callbackQuery("cancel:abort", async (ctx) => {
     await ctx.answerCallbackQuery({ text: "Отмена записи прервана" });
-    await ctx.editMessageText("Отмена записи прервана.");
+    await ctx.editMessageText("Хорошо, отмену записи не выполняю.");
   });
 
   bot.callbackQuery(/^cancel:confirm:/, async (ctx) => {
@@ -416,7 +438,7 @@ if (!token) {
     const telegramId = getTelegramId(ctx);
 
     if (!telegramId) {
-      await ctx.answerCallbackQuery({ text: "Не удалось определить ваш профиль" });
+      await ctx.answerCallbackQuery({ text: "Не удалось определить профиль" });
       return;
     }
 
@@ -424,19 +446,47 @@ if (!token) {
 
     if (!lead || lead.id !== leadId || !lead.appointmentAt) {
       await ctx.answerCallbackQuery({ text: "Запись уже недоступна" });
-      await ctx.editMessageText("Запись уже отменена или недоступна.");
+      await ctx.editMessageText("Похоже, эта запись уже отменена или больше недоступна.");
       return;
     }
 
-    updateLeadAppointment(leadId, null);
+    updateLeadAppointment(leadId, null, { actor: "bot" });
 
     await ctx.answerCallbackQuery({ text: "Запись отменена" });
     await ctx.editMessageText(
       [
-        "Запись отменена.",
-        "Если захотите выбрать новую дату, отправьте /start",
+        "Готово, запись отменена.",
+        "Если захотите выбрать новое время, отправьте /start.",
       ].join("\n"),
     );
+  });
+
+  bot.callbackQuery(/^service:/, async (ctx) => {
+    if (ctx.session.step !== "service") {
+      await ctx.answerCallbackQuery({ text: "Начните запись через /start" });
+      return;
+    }
+
+    const serviceId = ctx.callbackQuery.data.slice("service:".length);
+    const service = listActiveServices().find((item) => item.id === serviceId);
+
+    if (!service) {
+      await ctx.answerCallbackQuery({ text: "Эта услуга сейчас недоступна" });
+      return;
+    }
+
+    ctx.session.draft.serviceId = service.id;
+    ctx.session.draft.serviceName = service.name;
+    ctx.session.step = "name";
+
+    await ctx.answerCallbackQuery({ text: `Услуга: ${service.name}` });
+    await ctx.editMessageText(
+      [
+        "Отлично, услуга выбрана.",
+        `${service.name} • ${service.durationMinutes} мин`,
+      ].join("\n"),
+    );
+    await ctx.reply("Шаг 2 из 6. Подскажите, как к вам обращаться.");
   });
 
   bot.callbackQuery(/^nav:date:/, async (ctx) => {
@@ -447,19 +497,19 @@ if (!token) {
       return;
     }
 
+    const serviceId = getFlowServiceId(ctx);
+
     ctx.session.step = "date";
     ctx.session.draft.selectedDate = null;
 
     await ctx.answerCallbackQuery();
     await ctx.editMessageText(
       [
-        `Шаг ${ctx.session.bookingMode === "reschedule" ? "1" : "4"} из ${
-          ctx.session.bookingMode === "reschedule" ? "2" : "5"
-        }. Выберите удобный день записи.`,
-        "Показываю ближайшие 7 дней.",
+        `Шаг ${ctx.session.bookingMode === "reschedule" ? "1" : "5"} из ${ctx.session.bookingMode === "reschedule" ? "2" : "6"}. Выберите удобный день записи.`,
+        "Показываю ближайшие 7 дней с доступными слотами.",
       ].join("\n"),
       {
-        reply_markup: buildDateKeyboard(ctx.session.targetLeadId),
+        reply_markup: buildDateKeyboard(serviceId, ctx.session.targetLeadId),
       },
     );
   });
@@ -473,24 +523,23 @@ if (!token) {
     }
 
     const dateKey = ctx.callbackQuery.data.slice("date:".length);
-    const availableTimeSlots = getAvailableTimeSlots(
-      dateKey,
-      ctx.session.bookingMode === "reschedule" ? ctx.session.targetLeadId : null,
-    );
+    const serviceId = getFlowServiceId(ctx);
+    const availableTimeSlots = serviceId
+      ? listAvailableTimeSlotsForDate(dateKey, serviceId, {
+          excludeLeadId:
+            ctx.session.bookingMode === "reschedule" ? ctx.session.targetLeadId : null,
+        })
+      : [];
 
     if (availableTimeSlots.length === 0) {
-      await ctx.answerCallbackQuery({
-        text: "На этот день свободных слотов уже нет",
-      });
+      await ctx.answerCallbackQuery({ text: "На этот день свободных слотов уже нет" });
       await ctx.editMessageText(
         [
-          "На этот день свободных слотов уже нет.",
-          "Выберите другой день.",
+          "На этот день свободное время уже закончилось.",
+          "Давайте выберем другой день.",
         ].join("\n"),
         {
-          reply_markup: buildDateKeyboard(
-            ctx.session.bookingMode === "reschedule" ? ctx.session.targetLeadId : null,
-          ),
+          reply_markup: buildDateKeyboard(serviceId, ctx.session.targetLeadId),
         },
       );
       return;
@@ -500,20 +549,15 @@ if (!token) {
     ctx.session.step = "time";
 
     await ctx.answerCallbackQuery({
-      text: `Дата выбрана: ${formatDateLabel(dateKey)}`,
+      text: `Выбрали дату: ${formatDateLabel(dateKey)}`,
     });
     await ctx.editMessageText(
       [
-        `Шаг ${ctx.session.bookingMode === "reschedule" ? "2" : "5"} из ${
-          ctx.session.bookingMode === "reschedule" ? "2" : "5"
-        }. Выберите удобное время.`,
+        `Шаг ${ctx.session.bookingMode === "reschedule" ? "2" : "6"} из ${ctx.session.bookingMode === "reschedule" ? "2" : "6"}. Выберите удобное время.`,
         `Дата: ${formatDateLabel(dateKey)}`,
       ].join("\n"),
       {
-        reply_markup: buildTimeKeyboard(
-          dateKey,
-          ctx.session.bookingMode === "reschedule" ? ctx.session.targetLeadId : null,
-        ),
+        reply_markup: buildTimeKeyboard(dateKey, serviceId, ctx.session.targetLeadId),
       },
     );
   });
@@ -527,26 +571,36 @@ if (!token) {
     }
 
     const time = ctx.callbackQuery.data.slice("time:".length);
-    const appointmentAt = buildAppointmentIso(ctx.session.draft.selectedDate, time);
-    const isAvailable = isAppointmentSlotAvailable(appointmentAt, {
-      excludeLeadId:
-        ctx.session.bookingMode === "reschedule" ? ctx.session.targetLeadId : null,
-    });
+    const serviceId = getFlowServiceId(ctx);
 
-    if (!isAvailable) {
-      await ctx.answerCallbackQuery({
-        text: "Этот слот уже заняли, выберите другой",
-      });
+    if (!serviceId) {
+      await ctx.answerCallbackQuery({ text: "Не нашёл услугу, начните заново" });
+      return;
+    }
+
+    const appointmentAt = buildAppointmentIso(ctx.session.draft.selectedDate, time);
+    const availableTimeSlots = listAvailableTimeSlotsForDate(
+      ctx.session.draft.selectedDate,
+      serviceId,
+      {
+        excludeLeadId:
+          ctx.session.bookingMode === "reschedule" ? ctx.session.targetLeadId : null,
+      },
+    );
+
+    if (!availableTimeSlots.includes(time)) {
+      await ctx.answerCallbackQuery({ text: "Это время уже заняли, давайте выберем другое" });
       await ctx.editMessageText(
         [
-          "Этот слот уже заняли.",
+          "Похоже, это время уже успели занять.",
           `Дата: ${formatDateLabel(ctx.session.draft.selectedDate)}`,
-          "Выберите другое время.",
+          "Выберите, пожалуйста, другой слот.",
         ].join("\n"),
         {
           reply_markup: buildTimeKeyboard(
             ctx.session.draft.selectedDate,
-            ctx.session.bookingMode === "reschedule" ? ctx.session.targetLeadId : null,
+            serviceId,
+            ctx.session.targetLeadId,
           ),
         },
       );
@@ -554,19 +608,21 @@ if (!token) {
     }
 
     if (ctx.session.bookingMode === "reschedule" && ctx.session.targetLeadId) {
-      const updatedLead = updateLeadAppointment(ctx.session.targetLeadId, appointmentAt);
+      const updatedLead = updateLeadAppointment(ctx.session.targetLeadId, appointmentAt, {
+        actor: "bot",
+      });
       ctx.session = getInitialSession();
 
       await ctx.answerCallbackQuery({ text: "Запись перенесена" });
       await ctx.editMessageText(
         [
-          "Дата и время обновлены.",
-          `Новая запись: ${formatAppointment(appointmentAt)}`,
+          "Готово, запись перенесена.",
+          `Новое время: ${formatAppointment(appointmentAt)}`,
         ].join("\n"),
       );
       await ctx.reply(
         [
-          "Запись успешно перенесена.",
+          "Всё получилось.",
           `Номер заявки: ${updatedLead.id}`,
           `Новая дата и время: ${formatAppointment(appointmentAt)}`,
         ].join("\n"),
@@ -580,21 +636,25 @@ if (!token) {
       phone: ctx.session.draft.phone,
       comment: ctx.session.draft.comment,
       appointmentAt,
+      serviceId,
+      actor: "bot",
     });
 
+    const serviceName = ctx.session.draft.serviceName ?? lead.service?.name ?? "Услуга";
     ctx.session = getInitialSession();
 
     await ctx.answerCallbackQuery({ text: "Время выбрано" });
     await ctx.editMessageText(
       [
-        "Дата и время выбраны.",
+        "Отлично, дату и время выбрали.",
         `Запись: ${formatAppointment(appointmentAt)}`,
       ].join("\n"),
     );
     await ctx.reply(
       [
-        "Спасибо. Заявка сохранена.",
+        "Спасибо, всё сохранил.",
         `Номер заявки: ${lead.id}`,
+        `Услуга: ${serviceName}`,
         `Дата и время записи: ${formatAppointment(appointmentAt)}`,
         "Если захотите перенести запись, отправьте /reschedule.",
         "Если захотите отменить запись, отправьте /cancel_booking.",
@@ -609,12 +669,18 @@ if (!token) {
     if (ctx.session.step === "idle") {
       await ctx.reply(
         [
-          "Чтобы оставить заявку, отправьте /start",
-          "Для переноса записи отправьте /reschedule",
-          "Для отмены записи отправьте /cancel_booking",
-          "Если захотите отменить текущий ввод, используйте /cancel",
+          "Я готов помочь с записью.",
+          "Чтобы оставить новую заявку, отправьте /start.",
+          "Чтобы перенести запись, отправьте /reschedule.",
+          "Чтобы отменить запись, отправьте /cancel_booking.",
+          "Если хотите остановить текущий ввод, используйте /cancel.",
         ].join("\n"),
       );
+      return;
+    }
+
+    if (ctx.session.step === "service") {
+      await ctx.reply("Чтобы выбрать услугу, нажмите, пожалуйста, на кнопку под сообщением.");
       return;
     }
 
@@ -622,7 +688,7 @@ if (!token) {
       ctx.session.draft.name = text;
       ctx.session.step = "phone";
 
-      await ctx.reply("Шаг 2 из 5. Отправьте телефон для связи.");
+      await ctx.reply("Шаг 3 из 6. Отправьте, пожалуйста, телефон для связи.");
       return;
     }
 
@@ -639,19 +705,17 @@ if (!token) {
 
     if (ctx.session.step === "date" || ctx.session.step === "time") {
       await ctx.reply(
-        "Для выбора даты и времени используйте кнопки под сообщением. Если хотите начать заново, отправьте /cancel.",
+        "Чтобы выбрать дату и время, используйте кнопки под сообщением. Если захотите начать заново, отправьте /cancel.",
       );
     }
   });
 
   bot.on("message:contact", async (ctx) => {
-    console.log(
-      `[bot] Contact message at step=${ctx.session.step}: ${ctx.message.contact.phone_number}`,
-    );
+    console.log(`[bot] Contact message at step=${ctx.session.step}: ${ctx.message.contact.phone_number}`);
 
     if (ctx.session.step !== "phone") {
       await ctx.reply(
-        "Контакт получен вне шага ввода телефона. Если хотите начать новую заявку, отправьте /start.",
+        "Контакт пришёл не в тот шаг анкеты. Если хотите начать новую заявку, отправьте /start.",
       );
       return;
     }

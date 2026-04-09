@@ -16,8 +16,6 @@ import { getCurrentLocale, getDictionary, getLocaleTag } from "../../../lib/i18n
 
 export const dynamic = "force-dynamic";
 
-const timeSlots = ["10:00", "12:00", "14:00", "16:00", "18:00"] as const;
-
 function formatDate(value: string, locale: "ru" | "en") {
   return new Intl.DateTimeFormat(getLocaleTag(locale), {
     dateStyle: "medium",
@@ -46,7 +44,7 @@ function getAppointmentDateValue(value: string | null) {
 
 function getAppointmentTimeValue(value: string | null) {
   if (!value) {
-    return timeSlots[0];
+    return "10:00";
   }
 
   return new Intl.DateTimeFormat("ru-RU", {
@@ -71,7 +69,7 @@ export default async function LeadDetailsPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams?: Promise<{ error?: string; master_error?: string }>;
+  searchParams?: Promise<{ error?: string; master_error?: string; status_error?: string }>;
 }) {
   const locale = await getCurrentLocale();
   const dict = getDictionary(locale);
@@ -84,8 +82,30 @@ export default async function LeadDetailsPage({
   }
 
   const availableMasters = lead.appointmentAt
-    ? await listAvailableMastersForAppointment(lead.appointmentAt, lead.id)
+    ? await listAvailableMastersForAppointment(lead.appointmentAt, lead.id, lead.serviceId)
     : [];
+
+  const localText = {
+    service: locale === "ru" ? "Услуга" : "Service",
+    price: locale === "ru" ? "Цена" : "Price",
+    noService: locale === "ru" ? "Не выбрана" : "Not selected",
+    noPrice: locale === "ru" ? "Не указана" : "Not set",
+    finalPrice: locale === "ru" ? "Фактическая сумма" : "Final amount",
+    finalPriceHint:
+      locale === "ru"
+        ? "Если у услуги нет цены, укажите сумму перед переводом в статус «Готово»."
+        : "If the service has no price, enter the final amount before marking it done.",
+    statusPriceRequiredTitle:
+      locale === "ru" ? "Нужна сумма по заявке" : "Final amount required",
+    statusPriceRequiredText:
+      locale === "ru"
+        ? "У этой услуги пока нет цены. Укажите фактическую сумму и затем переведите заявку в статус «Готово»."
+        : "This service has no price yet. Enter the final amount before marking the lead as done.",
+    statusPriceInvalidText:
+      locale === "ru"
+        ? "Сумма должна быть числом. Используйте формат вроде 2500."
+        : "Amount must be a number. Use a value like 2500.",
+  };
 
   const statCards = [
     { label: dict.common.createdAt, value: formatDate(lead.createdAt, locale) },
@@ -94,6 +114,16 @@ export default async function LeadDetailsPage({
       value: formatAppointment(lead.appointmentAt, locale, dict.common.noAppointment),
     },
     { label: dict.common.master, value: lead.master?.name ?? dict.common.noMaster },
+    { label: localText.service, value: lead.service?.name ?? localText.noService },
+    {
+      label: localText.price,
+      value:
+        lead.finalPrice != null
+          ? `${lead.finalPrice} ₽`
+          : lead.service?.price != null
+            ? `${lead.service.price} ₽`
+            : localText.noPrice,
+    },
     { label: dict.common.telegramId, value: lead.telegramId ?? dict.common.telegramMissing },
   ];
 
@@ -119,6 +149,14 @@ export default async function LeadDetailsPage({
           <Notice title={dict.detail.masterErrorTitle} text={masterErrorText} />
         ) : null}
 
+        {resolvedSearchParams.status_error === "price_required" ? (
+          <Notice title={localText.statusPriceRequiredTitle} text={localText.statusPriceRequiredText} />
+        ) : null}
+
+        {resolvedSearchParams.status_error === "price_invalid" ? (
+          <Notice title={localText.statusPriceRequiredTitle} text={localText.statusPriceInvalidText} />
+        ) : null}
+
         <div className="rounded-[2rem] border border-[color:var(--border)] bg-[rgba(9,11,23,0.96)] p-8 text-white shadow-[var(--shadow-lg)] sm:p-9">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
             <div className="max-w-3xl">
@@ -138,6 +176,9 @@ export default async function LeadDetailsPage({
                 <span className="rounded-full bg-white/8 px-3 py-1.5">
                   {lead.master?.name ?? dict.common.noMaster}
                 </span>
+                <span className="rounded-full bg-white/8 px-3 py-1.5">
+                  {lead.service?.name ?? localText.noService}
+                </span>
               </div>
 
               <p className="mt-5 max-w-2xl text-sm leading-7 text-white/62 sm:text-base">
@@ -156,7 +197,7 @@ export default async function LeadDetailsPage({
           </div>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2 2xl:grid-cols-4">
+        <div className="grid gap-4 sm:grid-cols-2 2xl:grid-cols-5">
           {statCards.map((item, index) => (
             <div
               key={item.label}
@@ -220,6 +261,48 @@ export default async function LeadDetailsPage({
             </div>
           )}
         </div>
+
+        <div className="rounded-[2rem] border border-[color:var(--border)] bg-white p-8 shadow-[var(--shadow-md)]">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="text-sm uppercase tracking-[0.24em] text-[color:var(--muted)]">
+                {locale === "ru" ? "История" : "History"}
+              </p>
+              <h2 className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-[color:var(--foreground)]" style={{ fontFamily: "var(--font-heading)" }}>
+                {locale === "ru" ? "История действий" : "Activity log"}
+              </h2>
+            </div>
+          </div>
+
+          {lead.history.length === 0 ? (
+            <div className="mt-6 rounded-[1.6rem] border border-dashed border-[color:var(--border)] bg-[color:var(--surface-strong)] p-5 text-sm leading-7 text-[color:var(--foreground-soft)]">
+              {locale === "ru"
+                ? "История пока пустая. Новые действия по заявке будут появляться здесь."
+                : "History is empty for now. New lead actions will appear here."}
+            </div>
+          ) : (
+            <div className="mt-6 space-y-4">
+              {lead.history.map((entry) => (
+                <article
+                  key={entry.id}
+                  className="rounded-[1.7rem] border border-[color:var(--border-soft)] bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(240,244,255,0.82))] p-5"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="text-[11px] uppercase tracking-[0.22em] text-[color:var(--muted)]">
+                      {locale === "ru" ? "Событие" : "Event"}
+                    </div>
+                    <div className="rounded-full bg-[color:var(--surface-contrast)] px-3 py-1 text-[11px] uppercase tracking-[0.18em] text-[color:var(--accent-strong)]">
+                      {formatDate(entry.createdAt, locale)}
+                    </div>
+                  </div>
+                  <p className="mt-4 whitespace-pre-wrap text-sm leading-7 text-[color:var(--foreground-soft)] sm:text-base">
+                    {entry.message}
+                  </p>
+                </article>
+              ))}
+            </div>
+          )}
+        </div>
       </section>
 
       <aside className="space-y-6 xl:sticky xl:top-6 xl:self-start">
@@ -243,8 +326,24 @@ export default async function LeadDetailsPage({
                 <option key={option.value} value={option.value} className="text-black">
                   {option.label}
                 </option>
-              ))}
-            </select>
+                ))}
+              </select>
+            <div>
+              <label className="block text-sm text-white/70" htmlFor="finalPrice">
+                {localText.finalPrice}
+              </label>
+              <input
+                id="finalPrice"
+                name="finalPrice"
+                type="number"
+                min="0"
+                step="0.01"
+                defaultValue={lead.finalPrice ?? lead.service?.price ?? ""}
+                placeholder={lead.service?.price == null ? "2500" : undefined}
+                className="mt-2 w-full rounded-[1.3rem] border border-white/10 bg-white/8 px-4 py-3 text-white outline-none transition focus:border-white/25 placeholder:text-white/35"
+              />
+              <p className="mt-2 text-xs leading-5 text-white/55">{localText.finalPriceHint}</p>
+            </div>
             <button type="submit" className="w-full rounded-full bg-white px-5 py-3 text-sm font-medium text-[color:var(--ink-dark)] transition hover:opacity-90">
               {dict.common.saveStatus}
             </button>
@@ -311,18 +410,13 @@ export default async function LeadDetailsPage({
               <label className="block text-sm text-[color:var(--muted)]" htmlFor="appointment-time">
                 {dict.common.time}
               </label>
-              <select
+              <input
                 id="appointment-time"
+                type="time"
                 name="time"
                 defaultValue={getAppointmentTimeValue(lead.appointmentAt)}
                 className="mt-2 w-full rounded-[1.3rem] border border-[color:var(--border)] bg-[color:var(--surface-strong)] px-4 py-3 outline-none transition focus:border-[color:var(--accent)]"
-              >
-                {timeSlots.map((slot) => (
-                  <option key={slot} value={slot}>
-                    {slot}
-                  </option>
-                ))}
-              </select>
+              />
             </div>
 
             <button type="submit" className="w-full rounded-full bg-[color:var(--accent)] px-5 py-3 text-sm font-medium text-[color:var(--accent-foreground)] transition hover:bg-[color:var(--accent-strong)]">

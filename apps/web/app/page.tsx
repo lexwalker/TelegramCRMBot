@@ -1,5 +1,5 @@
 ﻿import Link from "next/link";
-import { listLeads, listMasters } from "../lib/leads";
+import { getMonthlyRevenue, listLeads, listMasters } from "../lib/leads";
 import { getCurrentLocale, getDictionary, getLocaleTag } from "../lib/i18n";
 
 export const dynamic = "force-dynamic";
@@ -43,7 +43,11 @@ function formatAppointment(value: string, locale: "ru" | "en") {
 export default async function HomePage() {
   const locale = await getCurrentLocale();
   const dict = getDictionary(locale);
-  const [leads, masters] = await Promise.all([listLeads(), listMasters()]);
+  const [leads, masters, monthlyRevenue] = await Promise.all([
+    listLeads(),
+    listMasters(),
+    getMonthlyRevenue(),
+  ]);
   const bookedLeads = leads.filter((lead) => Boolean(lead.appointmentAt)).length;
   const activeLeads = leads.filter((lead) => lead.status === "IN_PROGRESS").length;
   const completedLeads = leads.filter((lead) => lead.status === "DONE").length;
@@ -99,6 +103,16 @@ export default async function HomePage() {
       className: "bg-white text-[color:var(--foreground)]",
       noteClassName: "text-[color:var(--muted)]",
     },
+    {
+      label: locale === "ru" ? "Выручка за месяц" : "Monthly revenue",
+      note:
+        locale === "ru"
+          ? "Сумма завершенных заявок"
+          : "Revenue from completed leads",
+      value: `${monthlyRevenue} ₽`,
+      className: "bg-white text-[color:var(--foreground)]",
+      noteClassName: "text-[color:var(--muted)]",
+    },
   ];
 
   const actionLinks = [
@@ -150,7 +164,7 @@ export default async function HomePage() {
             </div>
           </div>
 
-          <div className="mt-9 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="mt-9 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
             {metricCards.map((card) => (
               <article
                 key={card.label}

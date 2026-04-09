@@ -2,10 +2,37 @@
 import path from "node:path";
 
 export type LeadStatus = "NEW" | "IN_PROGRESS" | "DONE";
+export type LeadHistoryAction =
+  | "lead_created"
+  | "status_changed"
+  | "note_added"
+  | "appointment_changed"
+  | "appointment_cancelled"
+  | "master_changed"
+  | "service_changed"
+  | "price_updated";
+export type LeadHistoryActor = "crm" | "bot" | "system";
+
+export type MasterScheduleDay = {
+  dayOfWeek: number;
+  isWorking: boolean;
+  startTime: string;
+  endTime: string;
+};
 
 export type Master = {
   id: string;
   name: string;
+  isActive: boolean;
+  sortOrder: number;
+  weeklySchedule: MasterScheduleDay[];
+};
+
+export type Service = {
+  id: string;
+  name: string;
+  durationMinutes: number;
+  price: number | null;
   isActive: boolean;
   sortOrder: number;
 };
@@ -17,6 +44,15 @@ export type LeadNote = {
   createdAt: string;
 };
 
+export type LeadHistoryEntry = {
+  id: string;
+  leadId: string;
+  action: LeadHistoryAction;
+  actor: LeadHistoryActor;
+  message: string;
+  createdAt: string;
+};
+
 type LeadRecord = {
   id: string;
   telegramId: string | null;
@@ -25,6 +61,9 @@ type LeadRecord = {
   comment: string;
   appointmentAt: string | null;
   masterId: string | null;
+  serviceId: string | null;
+  finalPrice: number | null;
+  completedAt: string | null;
   status: LeadStatus;
   createdAt: string;
   updatedAt: string;
@@ -32,7 +71,9 @@ type LeadRecord = {
 
 export type Lead = LeadRecord & {
   notes: LeadNote[];
+  history: LeadHistoryEntry[];
   master: Master | null;
+  service: Service | null;
 };
 
 type CreateLeadInput = {
@@ -41,17 +82,33 @@ type CreateLeadInput = {
   phone: string;
   comment: string;
   appointmentAt?: string | null;
+  serviceId?: string | null;
+  actor?: LeadHistoryActor;
 };
 
 type UpdateMasterInput = {
   name: string;
   isActive: boolean;
+  weeklySchedule: MasterScheduleDay[];
+};
+
+type UpdateServiceInput = {
+  name: string;
+  durationMinutes: number;
+  price: number | null;
+  isActive: boolean;
+};
+
+type UpdateLeadOptions = {
+  actor?: LeadHistoryActor;
 };
 
 type DatabaseShape = {
   leads: LeadRecord[];
   notes: LeadNote[];
+  history: LeadHistoryEntry[];
   masters: Master[];
+  services: Service[];
 };
 
 type AppointmentAvailabilityOptions = {
@@ -63,20 +120,51 @@ type FindMasterOptions = AppointmentAvailabilityOptions & {
 };
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "file:./data/db.json";
+const DEFAULT_TIME_INCREMENT_MINUTES = 60;
+const DEFAULT_SERVICE_DURATION_MINUTES = 60;
 const DEFAULT_MASTERS: Master[] = [
   {
     id: "master_1",
     name: "Мастер 1",
     isActive: true,
     sortOrder: 1,
+    weeklySchedule: createDefaultWeeklySchedule(),
   },
   {
     id: "master_2",
     name: "Мастер 2",
     isActive: true,
     sortOrder: 2,
+    weeklySchedule: createDefaultWeeklySchedule(),
   },
 ];
+const DEFAULT_SERVICES: Service[] = [
+  {
+    id: "service_basic",
+    name: "Базовая услуга",
+    durationMinutes: 60,
+    price: null,
+    isActive: true,
+    sortOrder: 1,
+  },
+  {
+    id: "service_extended",
+    name: "Длительная услуга",
+    durationMinutes: 120,
+    price: null,
+    isActive: true,
+    sortOrder: 2,
+  },
+];
+
+function createDefaultWeeklySchedule(): MasterScheduleDay[] {
+  return Array.from({ length: 7 }, (_, dayOfWeek) => ({
+    dayOfWeek,
+    isWorking: true,
+    startTime: "10:00",
+    endTime: "20:00",
+  }));
+}
 
 function resolveDatabasePath(databaseUrl: string) {
   if (databaseUrl.startsWith("file:")) {
@@ -96,7 +184,12 @@ if (databaseDir && databaseDir !== ".") {
 const emptyDatabase: DatabaseShape = {
   leads: [],
   notes: [],
-  masters: DEFAULT_MASTERS,
+  history: [],
+  masters: DEFAULT_MASTERS.map((master) => ({
+    ...master,
+    weeklySchedule: master.weeklySchedule.map((day) => ({ ...day })),
+  })),
+  services: DEFAULT_SERVICES.map((service) => ({ ...service })),
 };
 
 export function ensureDatabase() {
@@ -107,18 +200,61 @@ export function ensureDatabase() {
 
 ensureDatabase();
 
-function normalizeMasters(masters: Master[] | undefined) {
-  const nextMasters =
-    masters && masters.length > 0
-      ? masters.map((master, index) => ({
-          id: master.id,
-          name: master.name,
-          isActive: master.isActive ?? true,
-          sortOrder: master.sortOrder ?? index + 1,
-        }))
-      : DEFAULT_MASTERS.map((master) => ({ ...master }));
+function timeToMinutes(value: string) {
+  const [hours, minutes] = value.split(":").map(Number);
+  return hours * 60 + minutes;
+}
 
-  return [...nextMasters].sort((a, b) => a.sortOrder - b.sortOrder);
+function minutesToTime(value: number) {
+  const hours = Math.floor(value / 60)
+    .toString()
+    .padStart(2, "0");
+  const minutes = Math.floor(value % 60)
+    .toString()
+    .padStart(2, "0");
+  return `${hours}:${minutes}`;
+}
+
+function getDateKeyFromDate(date: Date) {
+  return new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "Europe/Moscow",
+  }).format(date);
+}
+
+function getDateKeyFromIso(value: string) {
+  return getDateKeyFromDate(new Date(value));
+}
+
+function formatAppointmentLabel(value: string | null) {
+  if (!value) {
+    return "без записи";
+  }
+
+  return new Intl.DateTimeFormat("ru-RU", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "Europe/Moscow",
+  }).format(new Date(value));
+}
+
+function formatPriceLabel(value: number | null) {
+  return value == null ? "не указана" : `${value} ₽`;
+}
+
+function getActorLabel(actor: LeadHistoryActor) {
+  if (actor === "bot") {
+    return "Бот";
+  }
+
+  if (actor === "system") {
+    return "Система";
+  }
+
+  return "CRM";
+}
+
+function getWeekday(dateKey: string) {
+  return new Date(`${dateKey}T12:00:00+03:00`).getUTCDay();
 }
 
 function getActiveMastersFromData(data: DatabaseShape) {
@@ -127,19 +263,137 @@ function getActiveMastersFromData(data: DatabaseShape) {
     .sort((a, b) => a.sortOrder - b.sortOrder);
 }
 
-function getSlotLeads(
-  appointmentAt: string,
-  data: DatabaseShape,
-  options: AppointmentAvailabilityOptions = {},
-) {
-  return data.leads.filter(
-    (lead) =>
-      lead.appointmentAt === appointmentAt && lead.id !== options.excludeLeadId,
+function getActiveServicesFromData(data: DatabaseShape) {
+  return data.services
+    .filter((service) => service.isActive)
+    .sort((a, b) => a.sortOrder - b.sortOrder);
+}
+
+function getServiceDurationMinutes(serviceId: string | null | undefined, data: DatabaseShape) {
+  return (
+    data.services.find((service) => service.id === serviceId)?.durationMinutes ??
+    DEFAULT_SERVICE_DURATION_MINUTES
   );
+}
+
+function getServicePrice(serviceId: string | null | undefined, data: DatabaseShape) {
+  return data.services.find((service) => service.id === serviceId)?.price ?? null;
+}
+
+function normalizeWeeklySchedule(
+  weeklySchedule: MasterScheduleDay[] | undefined,
+): MasterScheduleDay[] {
+  const defaults = createDefaultWeeklySchedule();
+
+  return defaults.map((fallback) => {
+    const current = weeklySchedule?.find((item) => item.dayOfWeek === fallback.dayOfWeek);
+    const startTime = current?.startTime ?? fallback.startTime;
+    const endTime = current?.endTime ?? fallback.endTime;
+
+    return {
+      dayOfWeek: fallback.dayOfWeek,
+      isWorking: current?.isWorking ?? fallback.isWorking,
+      startTime,
+      endTime,
+    };
+  });
+}
+
+function normalizeMasters(masters: Master[] | undefined) {
+  const nextMasters =
+    masters && masters.length > 0
+      ? masters.map((master, index) => ({
+          id: master.id,
+          name: master.name,
+          isActive: master.isActive ?? true,
+          sortOrder: master.sortOrder ?? index + 1,
+          weeklySchedule: normalizeWeeklySchedule(master.weeklySchedule),
+        }))
+      : DEFAULT_MASTERS.map((master) => ({
+          ...master,
+          weeklySchedule: normalizeWeeklySchedule(master.weeklySchedule),
+        }));
+
+  return [...nextMasters].sort((a, b) => a.sortOrder - b.sortOrder);
+}
+
+function normalizeServices(services: Service[] | undefined) {
+  const nextServices =
+    services && services.length > 0
+      ? services.map((service, index) => ({
+          id: service.id,
+          name: service.name,
+          durationMinutes:
+            Number.isFinite(service.durationMinutes) && service.durationMinutes > 0
+              ? service.durationMinutes
+              : DEFAULT_SERVICE_DURATION_MINUTES,
+          price:
+            typeof service.price === "number" && Number.isFinite(service.price)
+              ? service.price
+              : null,
+          isActive: service.isActive ?? true,
+          sortOrder: service.sortOrder ?? index + 1,
+        }))
+      : DEFAULT_SERVICES.map((service) => ({ ...service }));
+
+  return [...nextServices].sort((a, b) => a.sortOrder - b.sortOrder);
+}
+
+function cloneData(data: DatabaseShape): DatabaseShape {
+  return {
+    notes: data.notes.map((note) => ({ ...note })),
+    history: data.history.map((entry) => ({ ...entry })),
+    masters: data.masters.map((master) => ({
+      ...master,
+      weeklySchedule: master.weeklySchedule.map((day) => ({ ...day })),
+    })),
+    services: data.services.map((service) => ({ ...service })),
+    leads: data.leads.map((lead) => ({ ...lead })),
+  };
+}
+
+function getDaySchedule(master: Master, dateKey: string) {
+  const weekday = getWeekday(dateKey);
+  return master.weeklySchedule.find((day) => day.dayOfWeek === weekday) ?? null;
+}
+
+function isMasterWorkingForInterval(
+  master: Master,
+  dateKey: string,
+  startMinutes: number,
+  durationMinutes: number,
+) {
+  const schedule = getDaySchedule(master, dateKey);
+
+  if (!schedule || !schedule.isWorking) {
+    return false;
+  }
+
+  const scheduleStart = timeToMinutes(schedule.startTime);
+  const scheduleEnd = timeToMinutes(schedule.endTime);
+  const endMinutes = startMinutes + durationMinutes;
+
+  return startMinutes >= scheduleStart && endMinutes <= scheduleEnd;
+}
+
+function intervalsOverlap(
+  leftStart: number,
+  leftDurationMinutes: number,
+  rightStart: number,
+  rightDurationMinutes: number,
+) {
+  const leftEnd = leftStart + leftDurationMinutes;
+  const rightEnd = rightStart + rightDurationMinutes;
+  return leftStart < rightEnd && rightStart < leftEnd;
+}
+
+function getAppointmentStartMinutes(appointmentAt: string) {
+  return timeToMinutes(appointmentAt.slice(11, 16));
 }
 
 function getAvailableMastersForSlot(
   appointmentAt: string,
+  serviceId: string | null | undefined,
   data: DatabaseShape,
   options: FindMasterOptions = {},
 ) {
@@ -147,130 +401,188 @@ function getAvailableMastersForSlot(
   const activeMasters = getActiveMastersFromData(data).filter(
     (master) => !excludedMasterIds.has(master.id),
   );
-  const slotLeads = getSlotLeads(appointmentAt, data, options);
-  const occupiedMasterIds = new Set(
-    slotLeads
-      .map((lead) => lead.masterId)
-      .filter((value): value is string => Boolean(value)),
-  );
+  const dateKey = getDateKeyFromIso(appointmentAt);
+  const startMinutes = getAppointmentStartMinutes(appointmentAt);
+  const durationMinutes = getServiceDurationMinutes(serviceId, data);
 
-  return activeMasters.filter((master) => !occupiedMasterIds.has(master.id));
+  return activeMasters.filter((master) => {
+    if (!isMasterWorkingForInterval(master, dateKey, startMinutes, durationMinutes)) {
+      return false;
+    }
+
+    return !data.leads.some((lead) => {
+      if (
+        lead.id === options.excludeLeadId ||
+        lead.masterId !== master.id ||
+        !lead.appointmentAt ||
+        getDateKeyFromIso(lead.appointmentAt) !== dateKey
+      ) {
+        return false;
+      }
+
+      return intervalsOverlap(
+        startMinutes,
+        durationMinutes,
+        getAppointmentStartMinutes(lead.appointmentAt),
+        getServiceDurationMinutes(lead.serviceId, data),
+      );
+    });
+  });
 }
 
 function getFirstFreeMasterForSlot(
   appointmentAt: string,
+  serviceId: string | null | undefined,
   data: DatabaseShape,
   options: FindMasterOptions = {},
 ) {
-  return getAvailableMastersForSlot(appointmentAt, data, options)[0] ?? null;
+  return getAvailableMastersForSlot(appointmentAt, serviceId, data, options)[0] ?? null;
 }
 
-function cloneData(data: DatabaseShape): DatabaseShape {
-  return {
-    notes: data.notes.map((note) => ({ ...note })),
-    masters: data.masters.map((master) => ({ ...master })),
-    leads: data.leads.map((lead) => ({ ...lead })),
-  };
+function getLeadOverlappingSlot(lead: LeadRecord, dateKey: string, slotStartMinutes: number, data: DatabaseShape) {
+  if (!lead.appointmentAt || getDateKeyFromIso(lead.appointmentAt) !== dateKey) {
+    return false;
+  }
+
+  return intervalsOverlap(
+    getAppointmentStartMinutes(lead.appointmentAt),
+    getServiceDurationMinutes(lead.serviceId, data),
+    slotStartMinutes,
+    DEFAULT_TIME_INCREMENT_MINUTES,
+  );
 }
 
-function rebalanceLeadsForMasterRemoval(masterId: string, data: DatabaseShape) {
-  const draft = cloneData(data);
-  const targetMaster = draft.masters.find((master) => master.id === masterId);
+function listPotentialStartTimes(dateKey: string, durationMinutes: number, data: DatabaseShape) {
+  const slots = new Set<string>();
 
-  if (!targetMaster) {
-    throw new Error("Master not found");
-  }
+  for (const master of getActiveMastersFromData(data)) {
+    const schedule = getDaySchedule(master, dateKey);
 
-  targetMaster.isActive = false;
-  const activeMasters = getActiveMastersFromData(draft);
-
-  if (activeMasters.length === 0 && draft.leads.some((lead) => lead.appointmentAt)) {
-    throw new Error("Нельзя убрать последнего активного мастера, пока есть записи");
-  }
-
-  const affectedLeads = draft.leads
-    .filter((lead) => lead.masterId === masterId && lead.appointmentAt)
-    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-
-  for (const lead of affectedLeads) {
-    const nextMaster = getFirstFreeMasterForSlot(lead.appointmentAt as string, draft, {
-      excludeLeadId: lead.id,
-      excludedMasterIds: [masterId],
-    });
-
-    if (!nextMaster) {
-      throw new Error(
-        `Нельзя убрать мастера: на слот ${lead.appointmentAt} не хватит свободных мастеров`,
-      );
+    if (!schedule || !schedule.isWorking) {
+      continue;
     }
 
-    lead.masterId = nextMaster.id;
+    const scheduleStart = timeToMinutes(schedule.startTime);
+    const scheduleEnd = timeToMinutes(schedule.endTime);
+
+    for (
+      let current = scheduleStart;
+      current + durationMinutes <= scheduleEnd;
+      current += DEFAULT_TIME_INCREMENT_MINUTES
+    ) {
+      slots.add(minutesToTime(current));
+    }
   }
 
-  return draft;
+  return [...slots].sort((left, right) => timeToMinutes(left) - timeToMinutes(right));
+}
+
+function getUpcomingDateKeys(daysAhead: number) {
+  const today = new Date();
+
+  return Array.from({ length: daysAhead }, (_, index) => {
+    const current = new Date(today);
+    current.setDate(today.getDate() + index);
+    return getDateKeyFromDate(current);
+  });
+}
+
+function getDefaultServiceId(data: DatabaseShape) {
+  return getActiveServicesFromData(data)[0]?.id ?? data.services[0]?.id ?? null;
 }
 
 function normalizeData(raw: DatabaseShape) {
   const masters = normalizeMasters(raw.masters);
-  const activeMasters = masters.filter((master) => master.isActive);
-  const occupiedBySlot = new Map<string, Set<string>>();
-  let changed = !raw.masters || raw.masters.length === 0;
+  const services = normalizeServices(raw.services);
+  const dataForResolution: DatabaseShape = {
+    leads: [],
+    notes: raw.notes ?? [],
+    history: raw.history ?? [],
+    masters,
+    services,
+  };
+  let changed =
+    !raw.masters ||
+    raw.masters.length === 0 ||
+    !raw.services ||
+    raw.services.length === 0 ||
+    !raw.history;
 
-  const leads = [...(raw.leads ?? [])]
-    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
-    .map((lead) => {
-      const normalizedLead: LeadRecord = {
-        ...lead,
-        appointmentAt: lead.appointmentAt ?? null,
-        masterId: lead.masterId ?? null,
-      };
+  const sortedLeads = [...(raw.leads ?? [])].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  const leads = sortedLeads.map((lead) => {
+    const normalizedLead: LeadRecord = {
+      ...lead,
+      appointmentAt: lead.appointmentAt ?? null,
+      masterId: lead.masterId ?? null,
+      serviceId:
+        lead.serviceId && services.some((service) => service.id === lead.serviceId)
+          ? lead.serviceId
+          : getDefaultServiceId(dataForResolution),
+      finalPrice:
+        typeof lead.finalPrice === "number" && Number.isFinite(lead.finalPrice)
+          ? lead.finalPrice
+          : null,
+      completedAt:
+        lead.status === "DONE"
+          ? lead.completedAt ?? lead.updatedAt
+          : null,
+    };
 
-      if (!normalizedLead.appointmentAt) {
-        if (normalizedLead.masterId !== null) {
-          normalizedLead.masterId = null;
-          changed = true;
-        }
+    if (normalizedLead.serviceId !== lead.serviceId) {
+      changed = true;
+    }
 
-        return normalizedLead;
+    if (normalizedLead.completedAt !== (lead.completedAt ?? null)) {
+      changed = true;
+    }
+
+    if (!normalizedLead.appointmentAt) {
+      if (normalizedLead.masterId !== null) {
+        normalizedLead.masterId = null;
+        changed = true;
       }
 
-      const slotKey = normalizedLead.appointmentAt;
-      const occupiedMasters = occupiedBySlot.get(slotKey) ?? new Set<string>();
-      const hasValidMaster =
-        normalizedLead.masterId &&
-        activeMasters.some((master) => master.id === normalizedLead.masterId) &&
-        !occupiedMasters.has(normalizedLead.masterId);
+      dataForResolution.leads.push(normalizedLead);
+      return normalizedLead;
+    }
 
-      if (hasValidMaster) {
-        occupiedMasters.add(normalizedLead.masterId as string);
-        occupiedBySlot.set(slotKey, occupiedMasters);
-        return normalizedLead;
-      }
+    const currentMaster = masters.find((master) => master.id === normalizedLead.masterId);
+    const isCurrentMasterValid =
+      currentMaster &&
+      getAvailableMastersForSlot(
+        normalizedLead.appointmentAt,
+        normalizedLead.serviceId,
+        { ...dataForResolution, leads: [...dataForResolution.leads, normalizedLead] },
+        { excludeLeadId: normalizedLead.id },
+      ).some((master) => master.id === normalizedLead.masterId);
 
-      const availableMaster = activeMasters.find(
-        (master) => !occupiedMasters.has(master.id),
+    if (!isCurrentMasterValid) {
+      const nextMaster = getFirstFreeMasterForSlot(
+        normalizedLead.appointmentAt,
+        normalizedLead.serviceId,
+        dataForResolution,
+        { excludeLeadId: normalizedLead.id },
       );
-      const nextMasterId = availableMaster?.id ?? null;
+      const nextMasterId = nextMaster?.id ?? null;
 
       if (normalizedLead.masterId !== nextMasterId) {
         normalizedLead.masterId = nextMasterId;
         changed = true;
       }
+    }
 
-      if (availableMaster) {
-        occupiedMasters.add(availableMaster.id);
-        occupiedBySlot.set(slotKey, occupiedMasters);
-      }
-
-      return normalizedLead;
-    });
+    dataForResolution.leads.push(normalizedLead);
+    return normalizedLead;
+  });
 
   return {
     changed,
     data: {
       notes: raw.notes ?? [],
+      history: raw.history ?? [],
       leads,
       masters,
+      services,
     } satisfies DatabaseShape,
   };
 }
@@ -306,14 +618,79 @@ function listLeadNotes(leadId: string, data: DatabaseShape): LeadNote[] {
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
+function listLeadHistory(leadId: string, data: DatabaseShape): LeadHistoryEntry[] {
+  return data.history
+    .filter((entry) => entry.leadId === leadId)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+function addHistoryEntry(
+  data: DatabaseShape,
+  leadId: string,
+  action: LeadHistoryAction,
+  actor: LeadHistoryActor,
+  message: string,
+) {
+  data.history.push({
+    id: createId("history"),
+    leadId,
+    action,
+    actor,
+    message,
+    createdAt: nowIso(),
+  });
+}
+
 function mapLead(row: LeadRecord, data: DatabaseShape): Lead {
   return {
     ...row,
     appointmentAt: row.appointmentAt ?? null,
     masterId: row.masterId ?? null,
+    serviceId: row.serviceId ?? null,
+    finalPrice: row.finalPrice ?? null,
+    completedAt: row.completedAt ?? null,
     notes: listLeadNotes(row.id, data),
+    history: listLeadHistory(row.id, data),
     master: data.masters.find((master) => master.id === row.masterId) ?? null,
+    service: data.services.find((service) => service.id === row.serviceId) ?? null,
   };
+}
+
+function rebalanceLeadsForMasterRemoval(masterId: string, data: DatabaseShape) {
+  const draft = cloneData(data);
+  const targetMaster = draft.masters.find((master) => master.id === masterId);
+
+  if (!targetMaster) {
+    throw new Error("Master not found");
+  }
+
+  targetMaster.isActive = false;
+  const activeMasters = getActiveMastersFromData(draft);
+
+  if (activeMasters.length === 0 && draft.leads.some((lead) => lead.appointmentAt)) {
+    throw new Error("Нельзя убрать последнего активного мастера, пока есть записи");
+  }
+
+  const affectedLeads = draft.leads
+    .filter((lead) => lead.masterId === masterId && lead.appointmentAt)
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+
+  for (const lead of affectedLeads) {
+    const nextMaster = getFirstFreeMasterForSlot(lead.appointmentAt as string, lead.serviceId, draft, {
+      excludeLeadId: lead.id,
+      excludedMasterIds: [masterId],
+    });
+
+    if (!nextMaster) {
+      throw new Error(
+        `Нельзя убрать мастера: на слот ${lead.appointmentAt} не хватит свободных мастеров`,
+      );
+    }
+
+    lead.masterId = nextMaster.id;
+  }
+
+  return draft;
 }
 
 export function listMasters(): Master[] {
@@ -344,6 +721,7 @@ export function createMaster(name: string): Master {
     isActive: true,
     sortOrder:
       data.masters.reduce((max, item) => Math.max(max, item.sortOrder), 0) + 1,
+    weeklySchedule: createDefaultWeeklySchedule(),
   };
 
   data.masters.push(master);
@@ -365,6 +743,8 @@ export function updateMaster(id: string, input: UpdateMasterInput): Master {
     throw new Error("Master not found");
   }
 
+  const normalizedSchedule = normalizeWeeklySchedule(input.weeklySchedule);
+
   if (master.isActive && !input.isActive) {
     data = rebalanceLeadsForMasterRemoval(id, data);
   }
@@ -377,6 +757,7 @@ export function updateMaster(id: string, input: UpdateMasterInput): Master {
 
   nextMaster.name = trimmedName;
   nextMaster.isActive = input.isActive;
+  nextMaster.weeklySchedule = normalizedSchedule;
   writeDatabase(data);
   return nextMaster;
 }
@@ -406,12 +787,141 @@ export function deleteMaster(id: string) {
   writeDatabase(data);
 }
 
+export function listServices(): Service[] {
+  const data = readDatabase();
+  return [...data.services].sort((a, b) => a.sortOrder - b.sortOrder);
+}
+
+export function listActiveServices(): Service[] {
+  return getActiveServicesFromData(readDatabase());
+}
+
+export function createService(input: UpdateServiceInput): Service {
+  const trimmedName = input.name.trim();
+
+  if (!trimmedName) {
+    throw new Error("Service name is required");
+  }
+
+  if (!Number.isFinite(input.durationMinutes) || input.durationMinutes <= 0) {
+    throw new Error("Service duration is invalid");
+  }
+
+  const data = readDatabase();
+  const service: Service = {
+    id: createId("service"),
+    name: trimmedName,
+    durationMinutes: input.durationMinutes,
+    price: typeof input.price === "number" && Number.isFinite(input.price) ? input.price : null,
+    isActive: input.isActive,
+    sortOrder:
+      data.services.reduce((max, item) => Math.max(max, item.sortOrder), 0) + 1,
+  };
+
+  data.services.push(service);
+  writeDatabase(data);
+  return service;
+}
+
+export function updateService(id: string, input: UpdateServiceInput): Service {
+  const trimmedName = input.name.trim();
+
+  if (!trimmedName) {
+    throw new Error("Service name is required");
+  }
+
+  if (!Number.isFinite(input.durationMinutes) || input.durationMinutes <= 0) {
+    throw new Error("Service duration is invalid");
+  }
+
+  const data = readDatabase();
+  const service = data.services.find((item) => item.id === id);
+
+  if (!service) {
+    throw new Error("Service not found");
+  }
+
+  if (service.isActive && !input.isActive) {
+    const activeServicesCount = getActiveServicesFromData(data).length;
+
+    if (activeServicesCount <= 1) {
+      throw new Error("At least one active service must remain");
+    }
+  }
+
+  service.name = trimmedName;
+  service.durationMinutes = input.durationMinutes;
+  service.price = typeof input.price === "number" && Number.isFinite(input.price) ? input.price : null;
+  service.isActive = input.isActive;
+  writeDatabase(data);
+  return service;
+}
+
+export function deleteService(id: string) {
+  const data = readDatabase();
+  const service = data.services.find((item) => item.id === id);
+
+  if (!service) {
+    throw new Error("Service not found");
+  }
+
+  if (data.leads.some((lead) => lead.serviceId === id)) {
+    throw new Error("Service has leads");
+  }
+
+  const activeServicesCount = getActiveServicesFromData(data).length;
+
+  if (service.isActive && activeServicesCount <= 1) {
+    throw new Error("At least one active service must remain");
+  }
+
+  data.services = data.services.filter((item) => item.id !== id);
+  writeDatabase(data);
+}
+
 export function listAvailableMastersForAppointment(
   appointmentAt: string,
-  options: AppointmentAvailabilityOptions = {},
+  options: AppointmentAvailabilityOptions & { serviceId?: string | null } = {},
 ): Master[] {
   const data = readDatabase();
-  return getAvailableMastersForSlot(appointmentAt, data, options);
+  return getAvailableMastersForSlot(appointmentAt, options.serviceId ?? null, data, {
+    excludeLeadId: options.excludeLeadId,
+  });
+}
+
+export function listDayTimeSlots(dateKey: string, serviceId?: string | null) {
+  const data = readDatabase();
+  return listPotentialStartTimes(
+    dateKey,
+    getServiceDurationMinutes(serviceId ?? null, data),
+    data,
+  );
+}
+
+export function listAvailableTimeSlotsForDate(
+  dateKey: string,
+  serviceId?: string | null,
+  options: AppointmentAvailabilityOptions = {},
+) {
+  const data = readDatabase();
+  const durationMinutes = getServiceDurationMinutes(serviceId ?? null, data);
+
+  return listPotentialStartTimes(dateKey, durationMinutes, data).filter((time) =>
+    getFirstFreeMasterForSlot(`${dateKey}T${time}:00+03:00`, serviceId ?? null, data, {
+      excludeLeadId: options.excludeLeadId,
+    }) !== null,
+  );
+}
+
+export function listAvailableDateKeys(
+  daysAhead: number,
+  serviceId?: string | null,
+  options: AppointmentAvailabilityOptions = {},
+) {
+  return getUpcomingDateKeys(daysAhead).filter(
+    (dateKey) =>
+      listAvailableTimeSlotsForDate(dateKey, serviceId ?? null, options).length > 0,
+  );
 }
 
 export function listLeads(): Lead[] {
@@ -431,18 +941,31 @@ export function getLeadById(id: string): Lead | null {
 
 export function isAppointmentSlotAvailable(
   appointmentAt: string,
-  options: AppointmentAvailabilityOptions = {},
+  options: AppointmentAvailabilityOptions & { serviceId?: string | null } = {},
 ) {
   const data = readDatabase();
-  return getFirstFreeMasterForSlot(appointmentAt, data, options) !== null;
+  return (
+    getFirstFreeMasterForSlot(appointmentAt, options.serviceId ?? null, data, {
+      excludeLeadId: options.excludeLeadId,
+    }) !== null
+  );
 }
 
 export function createLead(input: CreateLeadInput): Lead {
   const data = readDatabase();
   const id = createId("lead");
   const timestamp = nowIso();
+  const serviceId =
+    input.serviceId && data.services.some((service) => service.id === input.serviceId)
+      ? input.serviceId
+      : getDefaultServiceId(data);
+
+  if (input.serviceId && !serviceId) {
+    throw new Error("Service is not available");
+  }
+
   const assignedMaster = input.appointmentAt
-    ? getFirstFreeMasterForSlot(input.appointmentAt, data, { excludeLeadId: null })
+    ? getFirstFreeMasterForSlot(input.appointmentAt, serviceId, data, { excludeLeadId: null })
     : null;
 
   if (input.appointmentAt && !assignedMaster) {
@@ -457,18 +980,33 @@ export function createLead(input: CreateLeadInput): Lead {
     comment: input.comment,
     appointmentAt: input.appointmentAt ?? null,
     masterId: assignedMaster?.id ?? null,
+    serviceId,
+    finalPrice: null,
+    completedAt: null,
     status: "NEW",
     createdAt: timestamp,
     updatedAt: timestamp,
   };
 
   data.leads.push(lead);
+  addHistoryEntry(
+    data,
+    lead.id,
+    "lead_created",
+    input.actor ?? "bot",
+    `${getActorLabel(input.actor ?? "bot")} создал новую заявку`,
+  );
   writeDatabase(data);
 
   return mapLead(lead, data);
 }
 
-export function updateLeadStatus(id: string, status: LeadStatus): Lead {
+export function updateLeadStatus(
+  id: string,
+  status: LeadStatus,
+  finalPrice?: number | null,
+  options: UpdateLeadOptions = {},
+): Lead {
   const data = readDatabase();
   const timestamp = nowIso();
   const lead = data.leads.find((item) => item.id === id);
@@ -477,14 +1015,56 @@ export function updateLeadStatus(id: string, status: LeadStatus): Lead {
     throw new Error("Lead not found");
   }
 
+  const actor = options.actor ?? "crm";
+  const previousStatus = lead.status;
+  const previousPrice = lead.finalPrice;
+
   lead.status = status;
   lead.updatedAt = timestamp;
+
+  if (typeof finalPrice === "number" && Number.isFinite(finalPrice)) {
+    lead.finalPrice = finalPrice;
+  }
+
+  if (status === "DONE") {
+    if (lead.finalPrice == null) {
+      lead.finalPrice = getServicePrice(lead.serviceId, data);
+    }
+    lead.completedAt = timestamp;
+  } else {
+    lead.completedAt = null;
+  }
+
+  if (previousStatus !== status) {
+    addHistoryEntry(
+      data,
+      lead.id,
+      "status_changed",
+      actor,
+      `${getActorLabel(actor)} изменил статус: ${previousStatus} -> ${status}`,
+    );
+  }
+
+  if (previousPrice !== lead.finalPrice) {
+    addHistoryEntry(
+      data,
+      lead.id,
+      "price_updated",
+      actor,
+      `${getActorLabel(actor)} обновил сумму: ${formatPriceLabel(previousPrice)} -> ${formatPriceLabel(lead.finalPrice)}`,
+    );
+  }
+
   writeDatabase(data);
 
   return mapLead(lead, data);
 }
 
-export function addLeadNote(leadId: string, text: string): LeadNote {
+export function addLeadNote(
+  leadId: string,
+  text: string,
+  options: UpdateLeadOptions = {},
+): LeadNote {
   const data = readDatabase();
   const lead = data.leads.find((item) => item.id === leadId);
 
@@ -502,6 +1082,13 @@ export function addLeadNote(leadId: string, text: string): LeadNote {
   };
 
   data.notes.push(note);
+  addHistoryEntry(
+    data,
+    leadId,
+    "note_added",
+    options.actor ?? "crm",
+    `${getActorLabel(options.actor ?? "crm")} добавил заметку`,
+  );
   writeDatabase(data);
 
   return note;
@@ -510,6 +1097,7 @@ export function addLeadNote(leadId: string, text: string): LeadNote {
 export function updateLeadAppointment(
   leadId: string,
   appointmentAt: string | null,
+  options: UpdateLeadOptions = {},
 ): Lead {
   const data = readDatabase();
   const timestamp = nowIso();
@@ -520,22 +1108,91 @@ export function updateLeadAppointment(
   }
 
   const assignedMaster = appointmentAt
-    ? getFirstFreeMasterForSlot(appointmentAt, data, { excludeLeadId: leadId })
+    ? getFirstFreeMasterForSlot(appointmentAt, lead.serviceId, data, { excludeLeadId: leadId })
     : null;
 
   if (appointmentAt && !assignedMaster) {
     throw new Error("Appointment slot is already taken");
   }
 
+  const previousAppointmentAt = lead.appointmentAt;
+
   lead.appointmentAt = appointmentAt;
   lead.masterId = assignedMaster?.id ?? null;
   lead.updatedAt = timestamp;
+
+  if (previousAppointmentAt !== appointmentAt) {
+    addHistoryEntry(
+      data,
+      leadId,
+      appointmentAt ? "appointment_changed" : "appointment_cancelled",
+      options.actor ?? "crm",
+      appointmentAt
+        ? `${getActorLabel(options.actor ?? "crm")} изменил запись: ${formatAppointmentLabel(previousAppointmentAt)} -> ${formatAppointmentLabel(appointmentAt)}`
+        : `${getActorLabel(options.actor ?? "crm")} отменил запись (${formatAppointmentLabel(previousAppointmentAt)})`,
+    );
+  }
+
   writeDatabase(data);
 
   return mapLead(lead, data);
 }
 
-export function updateLeadMaster(leadId: string, masterId: string): Lead {
+export function updateLeadService(
+  leadId: string,
+  serviceId: string,
+  options: UpdateLeadOptions = {},
+): Lead {
+  const data = readDatabase();
+  const lead = data.leads.find((item) => item.id === leadId);
+  const service = data.services.find((item) => item.id === serviceId);
+
+  if (!lead) {
+    throw new Error("Lead not found");
+  }
+
+  if (!service || !service.isActive) {
+    throw new Error("Service is not available");
+  }
+
+  const previousService = data.services.find((item) => item.id === lead.serviceId);
+
+  lead.serviceId = serviceId;
+  lead.updatedAt = nowIso();
+
+  if (lead.appointmentAt) {
+    const assignedMaster = getFirstFreeMasterForSlot(lead.appointmentAt, serviceId, data, {
+      excludeLeadId: leadId,
+    });
+
+    if (!assignedMaster) {
+      throw new Error("Appointment slot is already taken");
+    }
+
+    lead.masterId = assignedMaster.id;
+  }
+
+  if (lead.finalPrice == null && service.price != null) {
+    lead.finalPrice = service.price;
+  }
+
+  addHistoryEntry(
+    data,
+    leadId,
+    "service_changed",
+    options.actor ?? "crm",
+    `${getActorLabel(options.actor ?? "crm")} изменил услугу: ${previousService?.name ?? "не выбрана"} -> ${service.name}`,
+  );
+
+  writeDatabase(data);
+  return mapLead(lead, data);
+}
+
+export function updateLeadMaster(
+  leadId: string,
+  masterId: string,
+  options: UpdateLeadOptions = {},
+): Lead {
   const data = readDatabase();
   const lead = data.leads.find((item) => item.id === leadId);
   const master = data.masters.find((item) => item.id === masterId);
@@ -552,7 +1209,7 @@ export function updateLeadMaster(leadId: string, masterId: string): Lead {
     throw new Error("Master is not available");
   }
 
-  const availableMasters = getAvailableMastersForSlot(lead.appointmentAt, data, {
+  const availableMasters = getAvailableMastersForSlot(lead.appointmentAt, lead.serviceId, data, {
     excludeLeadId: leadId,
   });
 
@@ -560,8 +1217,17 @@ export function updateLeadMaster(leadId: string, masterId: string): Lead {
     throw new Error("Master is busy at this time");
   }
 
+  const previousMaster = data.masters.find((item) => item.id === lead.masterId);
+
   lead.masterId = masterId;
   lead.updatedAt = nowIso();
+  addHistoryEntry(
+    data,
+    leadId,
+    "master_changed",
+    options.actor ?? "crm",
+    `${getActorLabel(options.actor ?? "crm")} изменил мастера: ${previousMaster?.name ?? "не назначен"} -> ${master.name}`,
+  );
   writeDatabase(data);
 
   return mapLead(lead, data);
@@ -589,6 +1255,38 @@ export function getLatestBookedLeadByTelegramId(telegramId: string): Lead | null
   return lead ? mapLead(lead, data) : null;
 }
 
+export function getMonthlyRevenue(date = new Date()) {
+  const data = readDatabase();
+  const month = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "Europe/Moscow",
+    year: "numeric",
+    month: "2-digit",
+  }).format(date);
+
+  return data.leads.reduce((sum, lead) => {
+    if (lead.status !== "DONE" || lead.finalPrice == null || !lead.completedAt) {
+      return sum;
+    }
+
+    const leadMonth = new Intl.DateTimeFormat("sv-SE", {
+      timeZone: "Europe/Moscow",
+      year: "numeric",
+      month: "2-digit",
+    }).format(new Date(lead.completedAt));
+
+    return leadMonth === month ? sum + lead.finalPrice : sum;
+  }, 0);
+}
+
 export function countLeads() {
   return readDatabase().leads.length;
+}
+
+export function listLeadsAffectingSlot(dateKey: string, time: string) {
+  const data = readDatabase();
+  const slotStart = timeToMinutes(time);
+
+  return data.leads
+    .filter((lead) => getLeadOverlappingSlot(lead, dateKey, slotStart, data))
+    .map((lead) => mapLead(lead, data));
 }
