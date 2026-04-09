@@ -1,14 +1,31 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f6f1e8;
-  --foreground: #1f1d1a;
-  --surface: #fffdf8;
-  --surface-strong: #efe1cf;
-  --border: #d2bda3;
-  --accent: #125b50;
-  --accent-foreground: #f7f4ee;
-  --muted: #6a6258;
+  --background: #e9efff;
+  --background-strong: #d5e0ff;
+  --ink-dark: #0f1326;
+  --foreground: #1b223b;
+  --foreground-soft: #697492;
+  --surface: rgba(255, 255, 255, 0.82);
+  --surface-strong: #ffffff;
+  --surface-contrast: #e8eeff;
+  --surface-muted: #f2f5ff;
+  --border: rgba(104, 118, 168, 0.2);
+  --border-soft: rgba(104, 118, 168, 0.12);
+  --accent: #5b6dff;
+  --accent-strong: #4255f1;
+  --accent-soft: rgba(91, 109, 255, 0.15);
+  --accent-foreground: #ffffff;
+  --accent-foreground-soft: rgba(255, 255, 255, 0.72);
+  --muted: #8a94b2;
+  --success: #35c978;
+  --success-soft: rgba(53, 201, 120, 0.13);
+  --warning: #ffbd63;
+  --warning-soft: rgba(255, 189, 99, 0.16);
+  --danger: #ff748d;
+  --danger-soft: rgba(255, 116, 141, 0.14);
+  --shadow-lg: 0 40px 100px rgba(54, 79, 179, 0.16);
+  --shadow-md: 0 22px 56px rgba(54, 79, 179, 0.12);
 }
 
 * {
@@ -16,15 +33,22 @@
 }
 
 html {
-  font-family: "Segoe UI", sans-serif;
+  scroll-behavior: smooth;
 }
 
 body {
   margin: 0;
+  min-height: 100vh;
   background:
-    radial-gradient(circle at top left, rgba(18, 91, 80, 0.12), transparent 24%),
-    linear-gradient(180deg, #fbf7f0 0%, var(--background) 100%);
+    radial-gradient(circle at top right, rgba(91, 109, 255, 0.36), transparent 26%),
+    radial-gradient(circle at left 22%, rgba(91, 109, 255, 0.18), transparent 24%),
+    radial-gradient(circle at right bottom, rgba(91, 109, 255, 0.28), transparent 22%),
+    linear-gradient(180deg, #f9fbff 0%, var(--background) 100%);
   color: var(--foreground);
+  font-family: var(--font-body), sans-serif;
+  font-feature-settings: "ss01" on;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
 }
 
 a {
@@ -37,4 +61,34 @@ input,
 textarea,
 select {
   font: inherit;
+}
+
+::selection {
+  background: rgba(91, 109, 255, 0.18);
+}
+
+body::before {
+  position: fixed;
+  inset: -18vh auto auto -8vw;
+  z-index: -2;
+  width: 34vw;
+  height: 34vw;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(91, 109, 255, 0.22), transparent 68%);
+  content: "";
+  filter: blur(12px);
+  pointer-events: none;
+}
+
+body::after {
+  position: fixed;
+  inset: auto -10vw -18vh auto;
+  z-index: -2;
+  width: 40vw;
+  height: 40vw;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(91, 109, 255, 0.34), transparent 70%);
+  content: "";
+  filter: blur(20px);
+  pointer-events: none;
 }

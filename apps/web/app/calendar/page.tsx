@@ -1,11 +1,12 @@
 ﻿import Link from "next/link";
-import { listActiveMasters, listLeads } from "../../lib/leads";
 import { StatusBadge } from "../../components/status-badge";
+import { listActiveMasters, listLeads } from "../../lib/leads";
+import { getCurrentLocale, getDictionary, getLocaleTag } from "../../lib/i18n";
 
 export const dynamic = "force-dynamic";
 
 const TIME_SLOTS = ["10:00", "12:00", "14:00", "16:00", "18:00"] as const;
-const TIMEZONE = "Europe/Moscow";
+const WEEKDAY_BASE = [0, 1, 2, 3, 4, 5, 6];
 
 type CalendarPageProps = {
   searchParams?: Promise<{
@@ -15,7 +16,7 @@ type CalendarPageProps = {
 
 function getDateKey(date: Date) {
   return new Intl.DateTimeFormat("sv-SE", {
-    timeZone: TIMEZONE,
+    timeZone: "Europe/Moscow",
   }).format(date);
 }
 
@@ -23,32 +24,50 @@ function getTodayKey() {
   return getDateKey(new Date());
 }
 
-function formatHumanDate(dateKey: string) {
-  return new Intl.DateTimeFormat("ru-RU", {
+function parseDateKey(dateKey: string) {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day, 12));
+}
+
+function formatHumanDate(dateKey: string, locale: "ru" | "en") {
+  return new Intl.DateTimeFormat(getLocaleTag(locale), {
     weekday: "long",
     day: "numeric",
     month: "long",
     year: "numeric",
-    timeZone: TIMEZONE,
+    timeZone: "Europe/Moscow",
   }).format(new Date(`${dateKey}T00:00:00+03:00`));
 }
 
-function getNeighborDateKey(dateKey: string, shiftDays: number) {
-  const date = new Date(`${dateKey}T00:00:00+03:00`);
-  date.setUTCDate(date.getUTCDate() + shiftDays);
-  return getDateKey(date);
+function formatMonthLabel(dateKey: string, locale: "ru" | "en") {
+  return new Intl.DateTimeFormat(getLocaleTag(locale), {
+    month: "long",
+    year: "numeric",
+    timeZone: "Europe/Moscow",
+  }).format(new Date(`${dateKey}T00:00:00+03:00`));
 }
 
-function getTimeLabel(appointmentAt: string) {
-  return new Intl.DateTimeFormat("ru-RU", {
+function shiftMonth(dateKey: string, shiftMonths: number, locale: "ru" | "en") {
+  const selected = parseDateKey(dateKey);
+  const originalDay = selected.getUTCDate();
+  const next = new Date(Date.UTC(selected.getUTCFullYear(), selected.getUTCMonth(), 1, 12));
+  next.setUTCMonth(next.getUTCMonth() + shiftMonths);
+
+  const daysInTargetMonth = new Date(Date.UTC(next.getUTCFullYear(), next.getUTCMonth() + 1, 0, 12)).getUTCDate();
+  next.setUTCDate(Math.min(originalDay, daysInTargetMonth));
+  return getDateKey(next);
+}
+
+function getTimeLabel(appointmentAt: string, locale: "ru" | "en") {
+  return new Intl.DateTimeFormat(getLocaleTag(locale), {
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
-    timeZone: TIMEZONE,
+    timeZone: "Europe/Moscow",
   }).format(new Date(appointmentAt));
 }
 
-function isSameDay(appointmentAt: string | null, dateKey: string) {
+function isSameDay(appointmentAt: string | null, dateKey: string, locale: "ru" | "en") {
   if (!appointmentAt) {
     return false;
   }
@@ -60,190 +79,369 @@ function getSlotLeads(
   leads: Awaited<ReturnType<typeof listLeads>>,
   dateKey: string,
   slot: string,
+  locale: "ru" | "en",
 ) {
   return leads.filter((lead) => {
-    if (!isSameDay(lead.appointmentAt, dateKey) || !lead.appointmentAt) {
+    if (!isSameDay(lead.appointmentAt, dateKey, locale) || !lead.appointmentAt) {
       return false;
     }
 
-    return getTimeLabel(lead.appointmentAt) === slot;
+    return getTimeLabel(lead.appointmentAt, locale) === slot;
+  });
+}
+
+function getMonthDays(selectedDate: string, locale: "ru" | "en") {
+  const selected = parseDateKey(selectedDate);
+  const monthStart = new Date(Date.UTC(selected.getUTCFullYear(), selected.getUTCMonth(), 1, 12));
+  const startOffset = (monthStart.getUTCDay() + 6) % 7;
+  const gridStart = new Date(monthStart);
+  gridStart.setUTCDate(gridStart.getUTCDate() - startOffset);
+
+  return Array.from({ length: 42 }, (_, index) => {
+    const current = new Date(gridStart);
+    current.setUTCDate(gridStart.getUTCDate() + index);
+
+    return {
+      key: getDateKey(current),
+      dayNumber: current.getUTCDate(),
+      isCurrentMonth: current.getUTCMonth() === selected.getUTCMonth(),
+    };
+  });
+}
+
+function getLeadCountByDate(leads: Awaited<ReturnType<typeof listLeads>>, locale: "ru" | "en") {
+  const counts = new Map<string, number>();
+
+  for (const lead of leads) {
+    if (!lead.appointmentAt) {
+      continue;
+    }
+
+    const key = getDateKey(new Date(lead.appointmentAt));
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+
+  return counts;
+}
+
+function getFreeSlotsCount(
+  leads: Awaited<ReturnType<typeof listLeads>>,
+  dateKey: string,
+  activeMasterCount: number,
+  locale: "ru" | "en",
+) {
+  return TIME_SLOTS.filter(
+    (slot) => getSlotLeads(leads, dateKey, slot, locale).length < activeMasterCount,
+  ).length;
+}
+
+function getWeekdayLabels(locale: "ru" | "en") {
+  const monday = new Date(Date.UTC(2026, 0, 5, 12));
+
+  return WEEKDAY_BASE.map((offset) => {
+    const day = new Date(monday);
+    day.setUTCDate(monday.getUTCDate() + offset);
+    return new Intl.DateTimeFormat(getLocaleTag(locale), { weekday: "short" }).format(day);
   });
 }
 
 export default async function CalendarPage({ searchParams }: CalendarPageProps) {
+  const locale = await getCurrentLocale();
+  const dict = getDictionary(locale);
   const resolvedSearchParams = (await searchParams) ?? {};
   const selectedDate = resolvedSearchParams.date ?? getTodayKey();
   const leads = await listLeads();
   const activeMasters = await listActiveMasters();
   const activeMasterCount = activeMasters.length;
-  const dayLeads = leads.filter((lead) => isSameDay(lead.appointmentAt, selectedDate));
-  const previousDate = getNeighborDateKey(selectedDate, -1);
-  const nextDate = getNeighborDateKey(selectedDate, 1);
+  const dayLeads = leads.filter((lead) => isSameDay(lead.appointmentAt, selectedDate, locale));
+  const freeSlots = getFreeSlotsCount(leads, selectedDate, activeMasterCount, locale);
+  const todayKey = getTodayKey();
+  const monthDays = getMonthDays(selectedDate, locale);
+  const leadCountByDate = getLeadCountByDate(leads, locale);
+  const previousMonth = shiftMonth(selectedDate, -1, locale);
+  const nextMonth = shiftMonth(selectedDate, 1, locale);
+  const weekdayLabels = getWeekdayLabels(locale);
+  const slotSummaries = TIME_SLOTS.map((slot) => {
+    const slotLeads = getSlotLeads(leads, selectedDate, slot, locale);
+    return {
+      slot,
+      leads: slotLeads,
+      occupiedCount: slotLeads.length,
+      remainingCount: Math.max(activeMasterCount - slotLeads.length, 0),
+    };
+  });
+  const bookedCapacity = slotSummaries.reduce((sum, slot) => sum + slot.occupiedCount, 0);
+  const totalCapacity = activeMasterCount * TIME_SLOTS.length;
+  const utilization = totalCapacity ? Math.round((bookedCapacity / totalCapacity) * 100) : 0;
+  const stats = [
+    { label: dict.calendar.appointmentCount, value: dayLeads.length },
+    { label: dict.calendar.masterCount, value: activeMasterCount },
+    { label: dict.calendar.freeCount, value: freeSlots },
+    { label: dict.calendar.utilization, value: `${utilization}%` },
+  ];
 
   return (
-    <main className="space-y-6">
-      <section className="rounded-[2rem] border border-[var(--border)] bg-[var(--surface)] p-8 shadow-sm">
-        <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <p className="text-sm uppercase tracking-[0.25em] text-[var(--muted)]">
-              Календарь
-            </p>
-            <h2 className="mt-2 text-3xl font-semibold">
-              Записи на {formatHumanDate(selectedDate)}
-            </h2>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-[var(--muted)]">
-              В слоте может быть несколько записей, пока не заняты все активные мастера.
-            </p>
+    <main className="space-y-5">
+      <section className="grid gap-5 xl:grid-cols-[1.36fr_0.64fr]">
+        <div className="rounded-[1.95rem] border border-[color:var(--border)] bg-[rgba(255,255,255,0.92)] p-5 shadow-[var(--shadow-md)] backdrop-blur-xl sm:p-6">
+          <div className="flex flex-col gap-4 border-b border-[color:var(--border-soft)] pb-5 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <p className="text-sm tracking-[0.16em] text-[color:var(--muted)]">{dict.calendar.eyebrow}</p>
+              <h2 className="mt-2 text-3xl font-semibold tracking-[-0.05em] text-[color:var(--foreground)] sm:text-[2.2rem]" style={{ fontFamily: "var(--font-heading)" }}>
+                {formatMonthLabel(selectedDate, locale)}
+              </h2>
+              <p className="mt-2 text-sm leading-6 text-[color:var(--foreground-soft)]">{dict.calendar.description}</p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2.5">
+              <Link href={`/calendar?date=${previousMonth}`} className="inline-flex items-center justify-center rounded-full border border-[color:var(--border)] bg-white/84 px-3.5 py-2.5 text-sm font-medium transition hover:border-[color:var(--accent)] hover:text-[color:var(--accent)]">
+                {dict.calendar.previousMonth}
+              </Link>
+              <Link href={`/calendar?date=${todayKey}`} className="inline-flex items-center justify-center rounded-full bg-[color:var(--accent)] px-3.5 py-2.5 text-sm font-medium text-[color:var(--accent-foreground)] transition hover:bg-[color:var(--accent-strong)]">
+                {dict.calendar.today}
+              </Link>
+              <Link href={`/calendar?date=${nextMonth}`} className="inline-flex items-center justify-center rounded-full border border-[color:var(--border)] bg-white/84 px-3.5 py-2.5 text-sm font-medium transition hover:border-[color:var(--accent)] hover:text-[color:var(--accent)]">
+                {dict.calendar.nextMonth}
+              </Link>
+            </div>
           </div>
 
-          <form className="flex flex-col gap-3 sm:flex-row sm:items-center">
-            <Link
-              href={`/calendar?date=${previousDate}`}
-              className="rounded-full border border-[var(--border)] px-4 py-2 text-sm transition hover:border-[var(--accent)] hover:text-[var(--accent)]"
-            >
-              ← Предыдущий день
-            </Link>
+          <div className="mt-4 grid grid-cols-7 gap-2">
+            {weekdayLabels.map((label) => (
+              <div key={label} className="px-1 py-2 text-center text-[11px] font-semibold tracking-[0.16em] text-[color:var(--muted)]">
+                {label}
+              </div>
+            ))}
 
-            <input
-              type="date"
-              name="date"
-              defaultValue={selectedDate}
-              className="rounded-full border border-[var(--border)] bg-white px-4 py-2 text-sm outline-none transition focus:border-[var(--accent)]"
-            />
+            {monthDays.map((day) => {
+              const leadCount = leadCountByDate.get(day.key) ?? 0;
+              const freeCountByDay = getFreeSlotsCount(leads, day.key, activeMasterCount, locale);
+              const isSelected = day.key === selectedDate;
+              const isToday = day.key === todayKey;
+              const isFullDay = leadCount > 0 && activeMasterCount > 0 && freeCountByDay === 0;
 
-            <button
-              type="submit"
-              className="rounded-full bg-[var(--accent)] px-4 py-2 text-sm text-[var(--accent-foreground)] transition hover:opacity-90"
-            >
-              Показать день
-            </button>
+              return (
+                <Link
+                  key={day.key}
+                  href={`/calendar?date=${day.key}`}
+                  className={`flex min-h-[96px] flex-col rounded-[1.2rem] border p-2.5 transition duration-200 ${
+                    isSelected
+                      ? "border-[color:var(--accent-strong)] bg-[linear-gradient(180deg,#6a7cff,#5366ff)] text-[color:var(--accent-foreground)] shadow-[0_14px_30px_rgba(91,109,255,0.2)]"
+                      : day.isCurrentMonth
+                        ? "border-[color:var(--border-soft)] bg-white/82 hover:border-[color:var(--accent-soft)] hover:bg-white"
+                        : "border-[color:var(--border-soft)] bg-white/46 text-[color:var(--muted)] hover:border-[color:var(--accent-soft)]"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className={`text-sm font-semibold ${isSelected ? "text-[color:var(--accent-foreground)]" : "text-[color:var(--foreground)]"}`}>
+                      {day.dayNumber}
+                    </div>
 
-            <Link
-              href={`/calendar?date=${nextDate}`}
-              className="rounded-full border border-[var(--border)] px-4 py-2 text-sm transition hover:border-[var(--accent)] hover:text-[var(--accent)]"
-            >
-              Следующий день →
-            </Link>
-          </form>
+                    {isToday ? (
+                      <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.14em] ${isSelected ? "bg-white/16 text-[color:var(--accent-foreground-soft)]" : "bg-[color:var(--surface-contrast)] text-[color:var(--accent-strong)]"}`}>
+                        {dict.calendar.today}
+                      </span>
+                    ) : leadCount > 0 ? (
+                      <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${isSelected ? "bg-white/16 text-[color:var(--accent-foreground-soft)]" : "bg-[color:var(--surface-muted)] text-[color:var(--foreground-soft)]"}`}>
+                        {leadCount}
+                      </span>
+                    ) : null}
+                  </div>
+
+                  <div className="mt-auto">
+                    <div className="flex items-center gap-1">
+                      {TIME_SLOTS.map((slot) => {
+                        const slotLeads = getSlotLeads(leads, day.key, slot, locale);
+                        const isBusy = slotLeads.length > 0;
+                        const isSlotFull = activeMasterCount > 0 && slotLeads.length >= activeMasterCount;
+
+                        return (
+                          <span
+                            key={`${day.key}-${slot}`}
+                            className={`h-1.5 flex-1 rounded-full ${
+                              isSelected
+                                ? isSlotFull
+                                  ? "bg-[rgba(255,207,152,0.94)]"
+                                  : isBusy
+                                    ? "bg-white"
+                                    : "bg-white/20"
+                                : isSlotFull
+                                  ? "bg-[color:var(--warning)]"
+                                  : isBusy
+                                    ? "bg-[color:var(--accent)]"
+                                    : "bg-black/8"
+                            }`}
+                          />
+                        );
+                      })}
+                    </div>
+
+                    <div className={`mt-2 text-[11px] leading-4 ${isSelected ? "text-[color:var(--accent-foreground-soft)]" : isFullDay ? "text-[color:var(--danger)]" : "text-[color:var(--foreground-soft)]"}`}>
+                      {leadCount === 0 ? dict.calendar.free : isFullDay ? dict.calendar.dayFull : `${freeCountByDay} ${dict.calendar.monthFreeShort}`}
+                    </div>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
         </div>
 
-        <div className="mt-6 grid gap-4 sm:grid-cols-4">
-          <div className="rounded-2xl border border-[var(--border)] bg-white/70 p-4">
-            <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">
-              Всего записей
-            </p>
-            <p className="mt-2 text-2xl font-semibold">{dayLeads.length}</p>
-          </div>
+        <div className="space-y-5">
+          <section className="rounded-[1.95rem] border border-[color:var(--border)] bg-[linear-gradient(165deg,#10162d,#151c35)] p-6 text-white shadow-[var(--shadow-lg)]">
+            <p className="text-sm tracking-[0.16em] text-white/48">{dict.calendar.selectedDate}</p>
+            <h3 className="mt-2 text-2xl font-semibold tracking-[-0.05em] text-white" style={{ fontFamily: "var(--font-heading)" }}>
+              {formatHumanDate(selectedDate, locale)}
+            </h3>
 
-          <div className="rounded-2xl border border-[var(--border)] bg-white/70 p-4">
-            <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">
-              Активных мастеров
-            </p>
-            <p className="mt-2 text-2xl font-semibold">{activeMasterCount}</p>
-          </div>
+            <div className="mt-5 grid grid-cols-2 gap-2.5">
+              {stats.map((stat) => (
+                <div key={stat.label} className="rounded-[1.2rem] border border-white/10 bg-white/6 p-3.5">
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-white/45">{stat.label}</p>
+                  <p className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-white" style={{ fontFamily: "var(--font-heading)" }}>
+                    {stat.value}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </section>
 
-          <div className="rounded-2xl border border-[var(--border)] bg-white/70 p-4">
-            <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">
-              Свободных слотов
-            </p>
-            <p className="mt-2 text-2xl font-semibold">
-              {TIME_SLOTS.filter(
-                (slot) => getSlotLeads(leads, selectedDate, slot).length < activeMasterCount,
-              ).length}
-            </p>
-          </div>
+          <section className="rounded-[1.95rem] border border-[color:var(--border)] bg-[rgba(255,255,255,0.92)] p-5 shadow-[var(--shadow-md)] backdrop-blur-xl">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm tracking-[0.16em] text-[color:var(--muted)]">{dict.calendar.slotsOfDay}</p>
+                <h3 className="mt-1 text-xl font-semibold tracking-[-0.04em] text-[color:var(--foreground)]" style={{ fontFamily: "var(--font-heading)" }}>
+                  {dict.calendar.summary}
+                </h3>
+              </div>
+              <div className="rounded-full bg-[color:var(--surface-contrast)] px-3 py-1.5 text-sm font-medium text-[color:var(--accent-strong)]">
+                {bookedCapacity}
+              </div>
+            </div>
 
-          <div className="rounded-2xl border border-[var(--border)] bg-white/70 p-4">
-            <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">
-              День просмотра
-            </p>
-            <p className="mt-2 text-lg font-semibold">{selectedDate}</p>
-          </div>
+            <div className="mt-4 space-y-2.5">
+              {slotSummaries.map((slot) => {
+                const progress = activeMasterCount ? Math.round((slot.occupiedCount / activeMasterCount) * 100) : 0;
+                const fillWidth = slot.occupiedCount === 0 ? 10 : Math.max(14, progress);
+
+                return (
+                  <div key={slot.slot} className="rounded-[1.2rem] border border-[color:var(--border-soft)] bg-[color:var(--surface-muted)] p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-sm font-semibold text-[color:var(--foreground)]">{slot.slot}</p>
+                      <p className="text-xs text-[color:var(--foreground-soft)]">{slot.occupiedCount}/{activeMasterCount || 0}</p>
+                    </div>
+                    <div className="mt-2 h-2 rounded-full bg-white">
+                      <div
+                        className={`h-full rounded-full ${slot.occupiedCount === 0 ? "bg-[color:var(--success)]" : slot.remainingCount === 0 ? "bg-[color:var(--warning)]" : "bg-[color:var(--accent)]"}`}
+                        style={{ width: `${fillWidth}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
         </div>
       </section>
 
-      <section className="grid gap-4">
-        {TIME_SLOTS.map((slot) => {
-          const slotLeads = getSlotLeads(leads, selectedDate, slot);
-          const occupiedCount = slotLeads.length;
-          const isBusy = occupiedCount > 0;
-          const isFull = activeMasterCount > 0 && occupiedCount >= activeMasterCount;
+      <section className="space-y-3">
+        <div className="rounded-[1.95rem] border border-[color:var(--border)] bg-[rgba(255,255,255,0.92)] p-5 shadow-[var(--shadow-md)] backdrop-blur-xl">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <p className="text-sm tracking-[0.16em] text-[color:var(--muted)]">{dict.calendar.daySchedule}</p>
+              <h3 className="mt-1 text-2xl font-semibold tracking-[-0.05em] text-[color:var(--foreground)]" style={{ fontFamily: "var(--font-heading)" }}>
+                {formatHumanDate(selectedDate, locale)}
+              </h3>
+            </div>
 
-          return (
-            <article
-              key={slot}
-              className={`rounded-[2rem] border p-6 shadow-sm ${
-                isBusy
-                  ? "border-[var(--border)] bg-[var(--surface)]"
-                  : "border-dashed border-[#bfd7cd] bg-[#f6fbf8]"
-              }`}
-            >
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">
-                    Время
-                  </p>
-                  <h3 className="mt-2 text-2xl font-semibold">{slot}</h3>
-                  <p className="mt-2 text-sm text-[var(--muted)]">
-                    Занято мастеров: {occupiedCount} из {activeMasterCount}
-                  </p>
-                </div>
+            <div className="flex flex-wrap gap-2">
+              {[
+                `${dayLeads.length} ${dict.calendar.appointmentCount}`,
+                `${freeSlots} ${dict.calendar.freeCount.toLowerCase()}`,
+                `${activeMasterCount} ${dict.calendar.masterCount.toLowerCase()}`,
+              ].map((item) => (
+                <span key={item} className="rounded-full border border-[color:var(--border-soft)] bg-white px-3 py-1.5 text-sm text-[color:var(--foreground-soft)]">
+                  {item}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
 
-                {isBusy ? (
-                  <span
-                    className={`inline-flex rounded-full px-3 py-1 text-sm font-medium text-white ${
-                      isFull ? "bg-[#d96c4a]" : "bg-[#2c8f6d]"
-                    }`}
-                  >
-                    {isFull ? "Полностью занято" : "Есть свободный мастер"}
-                  </span>
-                ) : (
-                  <span className="inline-flex rounded-full bg-[#d8eee3] px-3 py-1 text-sm font-medium text-[#125b50]">
-                    Свободно
-                  </span>
-                )}
-              </div>
+        <div className="grid gap-3">
+          {slotSummaries.map((slot) => {
+            const occupiedCount = slot.occupiedCount;
+            const isBusy = occupiedCount > 0;
+            const isFull = activeMasterCount > 0 && occupiedCount >= activeMasterCount;
+            const progress = activeMasterCount > 0 ? `${Math.min(100, Math.round((occupiedCount / activeMasterCount) * 100))}%` : "0%";
 
-              {!isBusy ? (
-                <p className="mt-4 text-sm text-[var(--muted)]">
-                  На этот слот пока нет записей.
-                </p>
-              ) : (
-                <div className="mt-5 space-y-4">
-                  {slotLeads.map((lead) => (
-                    <div
-                      key={lead.id}
-                      className="rounded-3xl border border-[var(--border)] bg-white/80 p-5"
-                    >
-                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                        <div>
-                          <h4 className="text-lg font-semibold">{lead.name}</h4>
-                          <p className="mt-1 text-sm text-[var(--muted)]">{lead.phone}</p>
-                          <p className="mt-1 text-sm text-[var(--muted)]">
-                            Мастер: {lead.master?.name ?? "Не назначен"}
-                          </p>
-                        </div>
-                        <StatusBadge status={lead.status} />
+            return (
+              <article
+                key={slot.slot}
+                className={`rounded-[1.7rem] border shadow-[var(--shadow-md)] ${isBusy ? "border-[color:var(--border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(241,245,255,0.82))]" : "border-[rgba(53,201,120,0.16)] bg-[linear-gradient(180deg,rgba(251,255,253,0.98),rgba(235,251,242,0.88))]"}`}
+              >
+                <div className="grid gap-4 p-4 lg:grid-cols-[180px_1fr]">
+                  <div className="rounded-[1.3rem] border border-[color:var(--border-soft)] bg-white/72 p-4">
+                    <div className="flex items-center justify-between gap-3 lg:block">
+                      <div>
+                        <p className="text-[11px] uppercase tracking-[0.18em] text-[color:var(--muted)]">{dict.common.time}</p>
+                        <h4 className="mt-1 text-2xl font-semibold tracking-[-0.04em] text-[color:var(--foreground)]" style={{ fontFamily: "var(--font-heading)" }}>
+                          {slot.slot}
+                        </h4>
                       </div>
 
-                      <p className="mt-4 line-clamp-2 text-sm leading-6">{lead.comment}</p>
+                      <span className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] ${isFull ? "border-[rgba(255,189,99,0.2)] bg-[color:var(--warning-soft)] text-[#d98924]" : isBusy ? "border-[rgba(91,109,255,0.16)] bg-[color:var(--accent-soft)] text-[color:var(--accent-strong)]" : "border-[rgba(53,201,120,0.18)] bg-[color:var(--success-soft)] text-[color:var(--success)]"}`}>
+                        {isFull ? dict.calendar.full : isBusy ? dict.calendar.partial : dict.calendar.free}
+                      </span>
+                    </div>
 
-                      <div className="mt-4 flex items-center justify-between gap-3 border-t border-[var(--border)] pt-4">
-                        <p className="text-sm text-[var(--muted)]">Слот занят этой заявкой</p>
-                        <Link
-                          href={`/leads/${lead.id}`}
-                          className="rounded-full bg-[var(--accent)] px-4 py-2 text-sm text-[var(--accent-foreground)] transition hover:opacity-90"
-                        >
-                          Открыть заявку
-                        </Link>
+                    <div className="mt-4">
+                      <div className="flex items-center justify-between text-xs text-[color:var(--foreground-soft)]">
+                        <span>{dict.calendar.slotLoad}</span>
+                        <span>{occupiedCount}/{activeMasterCount}</span>
+                      </div>
+                      <div className="mt-2 h-2 overflow-hidden rounded-full bg-black/8">
+                        <div className={`h-full rounded-full ${isFull ? "bg-[color:var(--warning)]" : isBusy ? "bg-[color:var(--accent)]" : "bg-[color:var(--success)]"}`} style={{ width: progress }} />
                       </div>
                     </div>
-                  ))}
+                  </div>
+
+                  {!isBusy ? (
+                    <div className="rounded-[1.35rem] border border-dashed border-[rgba(53,201,120,0.22)] bg-white/55 p-4 text-sm leading-6 text-[color:var(--foreground-soft)]">
+                      {dict.calendar.noSlotBookings}
+                    </div>
+                  ) : (
+                    <div className="grid gap-3">
+                      {slot.leads.map((lead) => (
+                        <div key={lead.id} className="rounded-[1.35rem] border border-[color:var(--border-soft)] bg-[color:var(--surface-strong)] p-4">
+                          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-2.5">
+                                <h5 className="text-lg font-semibold tracking-[-0.03em] text-[color:var(--foreground)]" style={{ fontFamily: "var(--font-heading)" }}>
+                                  {lead.name}
+                                </h5>
+                                <StatusBadge status={lead.status} locale={locale} />
+                              </div>
+                              <div className="mt-2 flex flex-wrap gap-2 text-sm text-[color:var(--foreground-soft)]">
+                                <span>{lead.phone}</span>
+                                <span>•</span>
+                                <span>{dict.common.master}: {lead.master?.name ?? dict.common.noMaster}</span>
+                              </div>
+                              <p className="mt-2 line-clamp-2 text-sm leading-6 text-[color:var(--foreground-soft)]">{lead.comment}</p>
+                            </div>
+
+                            <Link href={`/leads/${lead.id}`} className="inline-flex items-center justify-center rounded-full bg-[color:var(--accent)] px-4 py-2 text-sm font-medium text-[color:var(--accent-foreground)] transition hover:bg-[color:var(--accent-strong)]">
+                              {dict.common.openLead}
+                            </Link>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              )}
-            </article>
-          );
-        })}
+              </article>
+            );
+          })}
+        </div>
       </section>
     </main>
   );

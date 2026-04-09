@@ -33,7 +33,7 @@ function revalidateLeadViews(id: string) {
   revalidatePath("/masters");
 }
 
-function masterRedirect(path: string, params?: Record<string, string>) {
+function redirectWithParams(path: string, params?: Record<string, string>) {
   const search = new URLSearchParams(params);
   redirect(search.size > 0 ? `${path}?${search.toString()}` : path);
 }
@@ -97,15 +97,22 @@ export async function changeLeadMasterAction(formData: FormData) {
   const masterId = String(formData.get("masterId") ?? "");
 
   if (!id || !masterId) {
-    throw new Error("Invalid lead master payload");
+    redirect(`/leads/${id}?master_error=unknown`);
   }
 
   try {
     await updateLeadMaster(id, masterId);
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Не удалось поменять мастера";
-    redirect(`/leads/${id}?master_error=${encodeURIComponent(message)}`);
+    const message = error instanceof Error ? error.message : "Unknown error";
+    const code =
+      message === "Lead does not have an appointment"
+        ? "no_appointment"
+        : message === "Master is not available"
+          ? "master_unavailable"
+          : message === "Master is busy at this time"
+            ? "master_busy"
+            : "unknown";
+    redirect(`/leads/${id}?master_error=${code}`);
   }
 
   revalidateLeadViews(id);
@@ -137,19 +144,18 @@ export async function createMasterAction(formData: FormData) {
   const name = String(formData.get("name") ?? "").trim();
 
   if (!name) {
-    masterRedirect("/masters", { error: "Укажите имя мастера" });
+    redirectWithParams("/masters", { error_code: "master_name_required" });
   }
 
   try {
     await createMaster(name);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Не удалось создать мастера";
-    masterRedirect("/masters", { error: message });
+  } catch {
+    redirectWithParams("/masters", { error_code: "master_unknown" });
   }
 
   revalidatePath("/masters");
   revalidatePath("/calendar");
-  masterRedirect("/masters", { success: "Мастер добавлен" });
+  redirectWithParams("/masters", { success_code: "master_created" });
 }
 
 export async function updateMasterAction(formData: FormData) {
@@ -158,38 +164,57 @@ export async function updateMasterAction(formData: FormData) {
   const isActive = String(formData.get("isActive") ?? "") === "true";
 
   if (!id || !name) {
-    masterRedirect("/masters", { error: "Некорректные данные мастера" });
+    redirectWithParams("/masters", { error_code: "master_invalid" });
   }
 
   try {
     await updateMaster(id, name, isActive);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Не удалось обновить мастера";
-    masterRedirect("/masters", { error: message });
+    const message = error instanceof Error ? error.message : "Unknown error";
+    const code =
+      message === "Master name is required"
+        ? "master_name_required"
+        : message.includes("Нельзя убрать мастера") ||
+            message.includes("cannot be removed")
+          ? "master_breaks_capacity"
+          : message.includes("последнего активного") ||
+              message.includes("At least one active")
+            ? "master_remove_last_active"
+            : "master_unknown";
+    redirectWithParams("/masters", { error_code: code });
   }
 
   revalidatePath("/masters");
   revalidatePath("/calendar");
   revalidatePath("/leads");
-  masterRedirect("/masters", { success: "Мастер обновлен" });
+  redirectWithParams("/masters", { success_code: "master_updated" });
 }
 
 export async function deleteMasterAction(formData: FormData) {
   const id = String(formData.get("id") ?? "");
 
   if (!id) {
-    masterRedirect("/masters", { error: "Не найден мастер для удаления" });
+    redirectWithParams("/masters", { error_code: "master_missing" });
   }
 
   try {
     await deleteMaster(id);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Не удалось удалить мастера";
-    masterRedirect("/masters", { error: message });
+    const message = error instanceof Error ? error.message : "Unknown error";
+    const code =
+      message.includes("At least one active") || message.includes("хотя бы одного")
+        ? "master_remove_last_active"
+        : message.includes("Нельзя убрать мастера") ||
+            message.includes("cannot be removed")
+          ? "master_breaks_capacity"
+          : message.includes("not found")
+            ? "master_missing"
+            : "master_unknown";
+    redirectWithParams("/masters", { error_code: code });
   }
 
   revalidatePath("/masters");
   revalidatePath("/calendar");
   revalidatePath("/leads");
-  masterRedirect("/masters", { success: "Мастер удален" });
+  redirectWithParams("/masters", { success_code: "master_deleted" });
 }
