@@ -1,4 +1,5 @@
 ﻿import {
+  addCustomerNote as addCustomerNoteInDb,
   addLeadNote as addLeadNoteInDb,
   createMaster as createMasterInDb,
   createService as createServiceInDb,
@@ -55,6 +56,10 @@ export function listCustomers() {
 
 export function getCustomerById(id: string) {
   return Promise.resolve(getCustomerByIdFromDb(id));
+}
+
+export function addCustomerNote(id: string, text: string) {
+  return Promise.resolve(addCustomerNoteInDb(id, text));
 }
 
 export function listLeadsAffectingSlot(dateKey: string, time: string) {

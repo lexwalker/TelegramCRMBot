@@ -71,6 +71,13 @@ export type LeadHistoryEntry = {
   createdAt: string;
 };
 
+export type CustomerNote = {
+  id: string;
+  customerId: string;
+  text: string;
+  createdAt: string;
+};
+
 type LeadRecord = {
   id: string;
   telegramId: string | null;
@@ -113,6 +120,9 @@ export type CustomerSummary = {
   totalRevenue: number;
   lastLeadAt: string;
   lastAppointmentAt: string | null;
+  lastVisitAt: string | null;
+  favoriteServiceName: string | null;
+  favoriteServiceCount: number;
   latestLeadId: string;
 };
 
@@ -125,6 +135,7 @@ export type CustomerActivity = LeadHistoryEntry & {
 export type Customer = CustomerSummary & {
   leads: Lead[];
   history: CustomerActivity[];
+  notes: CustomerNote[];
 };
 
 type CreateLeadInput = {
@@ -157,6 +168,7 @@ type UpdateLeadOptions = {
 type DatabaseShape = {
   leads: LeadRecord[];
   notes: LeadNote[];
+  customerNotes: CustomerNote[];
   history: LeadHistoryEntry[];
   masters: Master[];
   services: Service[];
@@ -252,6 +264,7 @@ if (databaseDir && databaseDir !== ".") {
 const emptyDatabase: DatabaseShape = {
   leads: [],
   notes: [],
+  customerNotes: [],
   history: [],
   masters: DEFAULT_MASTERS.map((master) => ({
     ...master,
@@ -494,6 +507,7 @@ function normalizeServices(services: Service[] | undefined) {
 function cloneData(data: DatabaseShape): DatabaseShape {
   return {
     notes: data.notes.map((note) => ({ ...note })),
+    customerNotes: data.customerNotes.map((note) => ({ ...note })),
     history: data.history.map((entry) => ({ ...entry })),
     masters: data.masters.map((master) => ({
       ...master,
@@ -659,6 +673,7 @@ function normalizeData(raw: DatabaseShape) {
   const dataForResolution: DatabaseShape = {
     leads: [],
     notes: raw.notes ?? [],
+    customerNotes: raw.customerNotes ?? [],
     history: raw.history ?? [],
     masters,
     services,
@@ -669,7 +684,8 @@ function normalizeData(raw: DatabaseShape) {
     raw.masters.length === 0 ||
     !raw.services ||
     raw.services.length === 0 ||
-    !raw.history;
+    !raw.history ||
+    !raw.customerNotes;
 
   const sortedLeads = [...(raw.leads ?? [])].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const leads = sortedLeads.map((lead) => {
@@ -776,6 +792,7 @@ function normalizeData(raw: DatabaseShape) {
     changed,
     data: {
       notes: raw.notes ?? [],
+      customerNotes: raw.customerNotes ?? [],
       history: raw.history ?? [],
       leads,
       masters,
@@ -819,6 +836,12 @@ function listLeadNotes(leadId: string, data: DatabaseShape): LeadNote[] {
 function listLeadHistory(leadId: string, data: DatabaseShape): LeadHistoryEntry[] {
   return data.history
     .filter((entry) => entry.leadId === leadId)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+function listCustomerNotes(customerId: string, data: DatabaseShape): CustomerNote[] {
+  return data.customerNotes
+    .filter((note) => note.customerId === customerId)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
@@ -885,6 +908,24 @@ function buildCustomerSummaryFromRows(
       .filter((lead) => Boolean(lead.appointmentAt))
       .sort((a, b) => String(b.appointmentAt).localeCompare(String(a.appointmentAt)))[0]
       ?.appointmentAt ?? null;
+  const favoriteServiceMap = new Map<string, number>();
+
+  for (const lead of rows) {
+    if (!lead.serviceId) {
+      continue;
+    }
+
+    favoriteServiceMap.set(lead.serviceId, (favoriteServiceMap.get(lead.serviceId) ?? 0) + 1);
+  }
+
+  const favoriteServiceEntry =
+    [...favoriteServiceMap.entries()].sort((left, right) => right[1] - left[1])[0] ?? null;
+  const lastVisitAt =
+    [...rows]
+      .filter((lead) => lead.status === "DONE")
+      .sort((a, b) =>
+        String(b.completedAt ?? b.updatedAt).localeCompare(String(a.completedAt ?? a.updatedAt)),
+      )[0]?.completedAt ?? null;
 
   return {
     id: customerId,
@@ -899,6 +940,10 @@ function buildCustomerSummaryFromRows(
     totalRevenue: rows.reduce((sum, lead) => sum + getLeadRevenue(lead, data), 0),
     lastLeadAt: latestLead.createdAt,
     lastAppointmentAt,
+    lastVisitAt,
+    favoriteServiceName:
+      data.services.find((service) => service.id === favoriteServiceEntry?.[0])?.name ?? null,
+    favoriteServiceCount: favoriteServiceEntry?.[1] ?? 0,
     latestLeadId: latestLead.id,
   };
 }
@@ -1283,7 +1328,34 @@ export function getCustomerById(id: string): Customer | null {
     ...buildCustomerSummaryFromRows(id, rows, data),
     leads,
     history,
+    notes: listCustomerNotes(id, data),
   };
+}
+
+export function addCustomerNote(customerId: string, text: string): CustomerNote {
+  const trimmedText = text.trim();
+
+  if (!trimmedText) {
+    throw new Error("Customer note text is required");
+  }
+
+  const data = readDatabase();
+  const grouped = groupLeadRecordsByCustomer(data);
+
+  if (!grouped.has(customerId)) {
+    throw new Error("Customer not found");
+  }
+
+  const note: CustomerNote = {
+    id: createId("customer_note"),
+    customerId,
+    text: trimmedText,
+    createdAt: nowIso(),
+  };
+
+  data.customerNotes.push(note);
+  writeDatabase(data);
+  return note;
 }
 
 export function getLeadById(id: string): Lead | null {

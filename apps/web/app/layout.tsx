@@ -31,15 +31,35 @@ const bodyFont = Inter({
   variable: "--font-body",
 });
 
-function SearchChrome({ placeholder }: { placeholder: string }) {
+function SearchChrome({
+  placeholder,
+  actionLabel,
+}: {
+  placeholder: string;
+  actionLabel: string;
+}) {
   return (
-    <div className="flex h-14 min-w-[280px] items-center gap-3 rounded-[1.35rem] border border-[color:var(--border-soft)] bg-[color:var(--surface-strong)] px-4 text-sm text-[color:var(--foreground-soft)] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
+    <form
+      action="/clients"
+      className="flex h-14 min-w-[320px] items-center gap-3 rounded-[1.35rem] border border-[color:var(--border-soft)] bg-[color:var(--surface-strong)] px-4 text-sm text-[color:var(--foreground-soft)] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
+    >
       <span className="relative h-4 w-4 shrink-0">
         <span className="absolute inset-0 rounded-full border-2 border-[#9aa4c7]" />
         <span className="absolute bottom-[-1px] right-[-2px] h-2 w-[2px] rotate-45 rounded-full bg-[#9aa4c7]" />
       </span>
-      <span className="truncate">{placeholder}</span>
-    </div>
+      <input
+        type="search"
+        name="q"
+        placeholder={placeholder}
+        className="w-full bg-transparent outline-none placeholder:text-[color:var(--foreground-soft)]"
+      />
+      <button
+        type="submit"
+        className="rounded-full border border-[color:var(--border-soft)] bg-[color:var(--surface)] px-3 py-1.5 text-xs font-medium text-[color:var(--foreground)] transition hover:border-[color:var(--accent-soft)] hover:text-[color:var(--accent-strong)]"
+      >
+        {actionLabel}
+      </button>
+    </form>
   );
 }
 
@@ -148,7 +168,10 @@ export default async function RootLayout({
               <header className="relative z-40 rounded-[2.1rem] border border-[color:var(--border)] bg-[color:var(--surface)] p-4 shadow-[var(--shadow-md)] backdrop-blur-2xl sm:p-5">
                 <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
                   <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-                    <SearchChrome placeholder={dict.layout.searchPlaceholder} />
+                    <SearchChrome
+                      placeholder={dict.layout.searchPlaceholder}
+                      actionLabel={locale === "ru" ? "Клиенты" : "Clients"}
+                    />
                     <HeaderPill label={`${dict.layout.today}, ${todayLabel}`} accent />
                     <HeaderPill label={dict.layout.dashboardChip} />
                   </div>

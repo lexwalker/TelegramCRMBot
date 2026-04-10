@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { LeadStatus, MasterScheduleDay } from "@crm-bot/db";
 import {
+  addCustomerNote,
   addLeadNote,
   createMaster,
   createService,
@@ -38,6 +39,7 @@ function buildAppointmentIso(date: string, time: string) {
 
 function revalidateLeadViews(id: string) {
   revalidatePath("/");
+  revalidatePath("/clients");
   revalidatePath("/leads");
   revalidatePath(`/leads/${id}`);
   revalidatePath("/calendar");
@@ -123,6 +125,20 @@ export async function addLeadNoteAction(formData: FormData) {
   await addLeadNote(id, text);
   revalidateLeadViews(id);
   redirect(`/leads/${id}`);
+}
+
+export async function addCustomerNoteAction(formData: FormData) {
+  const customerId = String(formData.get("customerId") ?? "");
+  const text = String(formData.get("text") ?? "").trim();
+
+  if (!customerId || !text) {
+    throw new Error("Invalid customer note payload");
+  }
+
+  await addCustomerNote(customerId, text);
+  revalidatePath("/clients");
+  revalidatePath(`/clients/${customerId}`);
+  redirect(`/clients/${customerId}`);
 }
 
 export async function rescheduleLeadAction(formData: FormData) {
