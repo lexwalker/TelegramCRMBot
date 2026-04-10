@@ -42,6 +42,7 @@ const dictionaries = {
     nav: {
       overview: "Обзор",
       leads: "Заявки",
+      clients: "Клиенты",
       calendar: "Календарь",
       masters: "Мастера",
     },
@@ -245,6 +246,7 @@ const dictionaries = {
     nav: {
       overview: "Overview",
       leads: "Leads",
+      clients: "Clients",
       calendar: "Calendar",
       masters: "Staff",
     },

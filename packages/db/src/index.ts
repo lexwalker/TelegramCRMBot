@@ -93,10 +93,38 @@ type LeadRecord = {
 };
 
 export type Lead = LeadRecord & {
+  customerId: string;
   notes: LeadNote[];
   history: LeadHistoryEntry[];
   master: Master | null;
   service: Service | null;
+};
+
+export type CustomerSummary = {
+  id: string;
+  name: string;
+  phone: string;
+  telegramId: string | null;
+  leadsCount: number;
+  bookedCount: number;
+  doneCount: number;
+  cancelledCount: number;
+  noShowCount: number;
+  totalRevenue: number;
+  lastLeadAt: string;
+  lastAppointmentAt: string | null;
+  latestLeadId: string;
+};
+
+export type CustomerActivity = LeadHistoryEntry & {
+  leadName: string;
+  leadStatus: LeadStatus;
+  leadAppointmentAt: string | null;
+};
+
+export type Customer = CustomerSummary & {
+  leads: Lead[];
+  history: CustomerActivity[];
 };
 
 type CreateLeadInput = {
@@ -794,6 +822,87 @@ function listLeadHistory(leadId: string, data: DatabaseShape): LeadHistoryEntry[
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
+function normalizePhoneKey(value: string) {
+  const digits = value.replace(/\D/g, "");
+  return digits || value.trim().toLowerCase();
+}
+
+function getCustomerIdForLeadRecord(lead: Pick<LeadRecord, "id" | "telegramId" | "phone">) {
+  const telegramId =
+    lead.telegramId == null ? "" : String(lead.telegramId).trim();
+
+  if (telegramId) {
+    return `tg_${telegramId}`;
+  }
+
+  const phoneKey = normalizePhoneKey(lead.phone);
+
+  if (phoneKey) {
+    return `ph_${phoneKey}`;
+  }
+
+  return `lead_${lead.id}`;
+}
+
+function getLeadRevenue(row: LeadRecord, data: DatabaseShape) {
+  if (row.status !== "DONE") {
+    return 0;
+  }
+
+  if (typeof row.finalPrice === "number") {
+    return row.finalPrice;
+  }
+
+  return data.services.find((service) => service.id === row.serviceId)?.price ?? 0;
+}
+
+function groupLeadRecordsByCustomer(data: DatabaseShape) {
+  const grouped = new Map<string, LeadRecord[]>();
+
+  for (const lead of data.leads) {
+    const customerId = getCustomerIdForLeadRecord(lead);
+    const bucket = grouped.get(customerId);
+
+    if (bucket) {
+      bucket.push(lead);
+    } else {
+      grouped.set(customerId, [lead]);
+    }
+  }
+
+  return grouped;
+}
+
+function buildCustomerSummaryFromRows(
+  customerId: string,
+  rows: LeadRecord[],
+  data: DatabaseShape,
+): CustomerSummary {
+  const sortedRows = [...rows].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const latestLead = sortedRows[0];
+  const lastAppointmentAt =
+    [...rows]
+      .filter((lead) => Boolean(lead.appointmentAt))
+      .sort((a, b) => String(b.appointmentAt).localeCompare(String(a.appointmentAt)))[0]
+      ?.appointmentAt ?? null;
+
+  return {
+    id: customerId,
+    name: latestLead.name,
+    phone: latestLead.phone,
+    telegramId: latestLead.telegramId ?? null,
+    leadsCount: rows.length,
+    bookedCount: rows.filter((lead) => ACTIVE_BOOKING_STATUSES.includes(lead.status)).length,
+    doneCount: rows.filter((lead) => lead.status === "DONE").length,
+    cancelledCount: rows.filter((lead) => lead.status === "CANCELLED").length,
+    noShowCount: rows.filter((lead) => lead.status === "NO_SHOW").length,
+    totalRevenue: rows.reduce((sum, lead) => sum + getLeadRevenue(lead, data), 0),
+    lastLeadAt: latestLead.createdAt,
+    lastAppointmentAt,
+    latestLeadId: latestLead.id,
+  };
+}
+
 function addHistoryEntry(
   data: DatabaseShape,
   leadId: string,
@@ -814,6 +923,7 @@ function addHistoryEntry(
 function mapLead(row: LeadRecord, data: DatabaseShape): Lead {
   return {
     ...row,
+    customerId: getCustomerIdForLeadRecord(row),
     appointmentAt: row.appointmentAt ?? null,
     masterId: row.masterId ?? null,
     serviceId: row.serviceId ?? null,
@@ -1135,6 +1245,45 @@ export function listLeads(): Lead[] {
   return [...data.leads]
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
     .map((lead) => mapLead(lead, data));
+}
+
+export function listCustomers(): CustomerSummary[] {
+  const data = readDatabase();
+  const grouped = groupLeadRecordsByCustomer(data);
+
+  return [...grouped.entries()]
+    .map(([customerId, rows]) => buildCustomerSummaryFromRows(customerId, rows, data))
+    .sort((a, b) => b.lastLeadAt.localeCompare(a.lastLeadAt));
+}
+
+export function getCustomerById(id: string): Customer | null {
+  const data = readDatabase();
+  const grouped = groupLeadRecordsByCustomer(data);
+  const rows = grouped.get(id);
+
+  if (!rows) {
+    return null;
+  }
+
+  const leads = [...rows]
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .map((lead) => mapLead(lead, data));
+  const history = leads
+    .flatMap((lead) =>
+      lead.history.map((entry) => ({
+        ...entry,
+        leadName: lead.name,
+        leadStatus: lead.status,
+        leadAppointmentAt: lead.appointmentAt,
+      })),
+    )
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
+  return {
+    ...buildCustomerSummaryFromRows(id, rows, data),
+    leads,
+    history,
+  };
 }
 
 export function getLeadById(id: string): Lead | null {

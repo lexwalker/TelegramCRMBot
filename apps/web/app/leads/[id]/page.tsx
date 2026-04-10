@@ -109,6 +109,7 @@ export default async function LeadDetailsPage({
     cancelledBooking: locale === "ru" ? "Запись отменена" : "Booking cancelled",
     completedBooking: locale === "ru" ? "Визит завершен" : "Visit completed",
     noShowBooking: locale === "ru" ? "Клиент не пришел" : "Client did not show up",
+    customerCard: locale === "ru" ? "Карточка клиента" : "Client card",
     quickStatuses: locale === "ru" ? "Быстрые действия" : "Quick actions",
     quickStatusesHint:
       locale === "ru"
@@ -213,6 +214,12 @@ export default async function LeadDetailsPage({
                 <span className="rounded-full bg-white/8 px-3 py-1.5">
                   {lead.service?.name ?? localText.noService}
                 </span>
+                <Link
+                  href={`/clients/${lead.customerId}`}
+                  className="rounded-full border border-white/14 bg-white/6 px-3 py-1.5 text-white transition hover:border-white/28 hover:bg-white/10"
+                >
+                  {localText.customerCard}
+                </Link>
               </div>
 
               <p className="mt-5 max-w-2xl text-sm leading-7 text-white/62 sm:text-base">

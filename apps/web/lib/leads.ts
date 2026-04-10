@@ -4,6 +4,7 @@
   createService as createServiceInDb,
   deleteMaster as deleteMasterInDb,
   deleteService as deleteServiceInDb,
+  getCustomerById as getCustomerByIdFromDb,
   getLeadById as getLeadByIdFromDb,
   getBookingSettings as getBookingSettingsFromDb,
   getMonthlyRevenue as getMonthlyRevenueFromDb,
@@ -13,6 +14,7 @@
   listAvailableDateKeys as listAvailableDateKeysInDb,
   listAvailableMastersForAppointment as listAvailableMastersForAppointmentInDb,
   listAvailableTimeSlotsForDate as listAvailableTimeSlotsForDateInDb,
+  listCustomers as listCustomersFromDb,
   listDayTimeSlots as listDayTimeSlotsInDb,
   listLeads as listLeadsFromDb,
   listLeadsAffectingSlot as listLeadsAffectingSlotInDb,
@@ -45,6 +47,14 @@ export async function getLeads() {
 
 export function listLeads() {
   return Promise.resolve(listLeadsFromDb());
+}
+
+export function listCustomers() {
+  return Promise.resolve(listCustomersFromDb());
+}
+
+export function getCustomerById(id: string) {
+  return Promise.resolve(getCustomerByIdFromDb(id));
 }
 
 export function listLeadsAffectingSlot(dateKey: string, time: string) {

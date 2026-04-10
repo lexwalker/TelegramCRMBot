@@ -91,6 +91,7 @@ export default async function RootLayout({
   const navItems = [
     { href: "/", label: dict.nav.overview, glyph: "grid" as const },
     { href: "/leads", label: dict.nav.leads, glyph: "list" as const },
+    { href: "/clients", label: dict.nav.clients, glyph: "person" as const },
     { href: "/calendar", label: dict.nav.calendar, glyph: "calendar" as const },
     { href: "/masters", label: dict.nav.masters, glyph: "team" as const },
   ];

@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 type NavItem = {
   href: string;
   label: string;
-  glyph: "grid" | "list" | "calendar" | "team";
+  glyph: "grid" | "list" | "calendar" | "team" | "person";
 };
 
 type AppNavigationProps = {
@@ -53,6 +53,15 @@ function Glyph({ glyph, active }: { glyph: NavItem["glyph"]; active: boolean }) 
         <span className="absolute left-2 right-2 top-2 h-1 rounded-full bg-current/85" />
         <span className="absolute left-2 bottom-2 top-5 rounded-md border border-current/60" />
         <span className="absolute right-2 bottom-2 top-5 rounded-md border border-current/60" />
+      </div>
+    );
+  }
+
+  if (glyph === "person") {
+    return (
+      <div className={`relative h-10 w-10 rounded-2xl ${tone}`}>
+        <span className="absolute left-1/2 top-[8px] h-3.5 w-3.5 -translate-x-1/2 rounded-full bg-current/90" />
+        <span className="absolute bottom-[8px] left-[10px] right-[10px] h-4 rounded-full bg-current/78" />
       </div>
     );
   }
