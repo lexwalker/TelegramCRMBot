@@ -22,6 +22,13 @@ export type LeadHistoryActor = "crm" | "bot" | "system";
 export type ReminderKind = "day_before" | "same_day";
 export type BookingSettings = {
   minLeadTimeMinutes: number;
+  managerName: string;
+  managerRole: string;
+  remindersEnabled: boolean;
+  dayBeforeReminderEnabled: boolean;
+  dayBeforeReminderMinutes: number;
+  sameDayReminderEnabled: boolean;
+  sameDayReminderMinutes: number;
 };
 
 export type MasterScheduleDay = {
@@ -146,6 +153,13 @@ const DEFAULT_TIME_INCREMENT_MINUTES = 60;
 const DEFAULT_SERVICE_DURATION_MINUTES = 60;
 const DEFAULT_BOOKING_SETTINGS: BookingSettings = {
   minLeadTimeMinutes: 0,
+  managerName: "Alexander",
+  managerRole: "CRM operator",
+  remindersEnabled: true,
+  dayBeforeReminderEnabled: true,
+  dayBeforeReminderMinutes: 24 * 60,
+  sameDayReminderEnabled: true,
+  sameDayReminderMinutes: 120,
 };
 const ACTIVE_BOOKING_STATUSES: LeadStatus[] = ["NEW", "CONFIRMED", "IN_PROGRESS"];
 const DEFAULT_MASTERS: Master[] = [
@@ -312,9 +326,52 @@ function normalizeBookingSettings(settings: BookingSettings | undefined): Bookin
     settings.minLeadTimeMinutes >= 0
       ? settings.minLeadTimeMinutes
       : DEFAULT_BOOKING_SETTINGS.minLeadTimeMinutes;
+  const managerName =
+    typeof settings?.managerName === "string" && settings.managerName.trim()
+      ? settings.managerName.trim()
+      : DEFAULT_BOOKING_SETTINGS.managerName;
+  const managerRole =
+    typeof settings?.managerRole === "string" && settings.managerRole.trim()
+      ? settings.managerRole.trim()
+      : DEFAULT_BOOKING_SETTINGS.managerRole;
+  const remindersEnabled =
+    typeof settings?.remindersEnabled === "boolean"
+      ? settings.remindersEnabled
+      : DEFAULT_BOOKING_SETTINGS.remindersEnabled;
+  const dayBeforeReminderEnabled =
+    typeof settings?.dayBeforeReminderEnabled === "boolean"
+      ? settings.dayBeforeReminderEnabled
+      : DEFAULT_BOOKING_SETTINGS.dayBeforeReminderEnabled;
+  const sameDayReminderEnabled =
+    typeof settings?.sameDayReminderEnabled === "boolean"
+      ? settings.sameDayReminderEnabled
+      : DEFAULT_BOOKING_SETTINGS.sameDayReminderEnabled;
+  const sameDayReminderMinutes =
+    typeof settings?.sameDayReminderMinutes === "number" &&
+    Number.isFinite(settings.sameDayReminderMinutes) &&
+    settings.sameDayReminderMinutes > 0
+      ? Math.round(settings.sameDayReminderMinutes)
+      : DEFAULT_BOOKING_SETTINGS.sameDayReminderMinutes;
+  const dayBeforeReminderMinutesRaw =
+    typeof settings?.dayBeforeReminderMinutes === "number" &&
+    Number.isFinite(settings.dayBeforeReminderMinutes) &&
+    settings.dayBeforeReminderMinutes > 0
+      ? Math.round(settings.dayBeforeReminderMinutes)
+      : DEFAULT_BOOKING_SETTINGS.dayBeforeReminderMinutes;
+  const dayBeforeReminderMinutes = Math.max(
+    dayBeforeReminderMinutesRaw,
+    sameDayReminderMinutes + 1,
+  );
 
   return {
     minLeadTimeMinutes,
+    managerName,
+    managerRole,
+    remindersEnabled,
+    dayBeforeReminderEnabled,
+    dayBeforeReminderMinutes,
+    sameDayReminderEnabled,
+    sameDayReminderMinutes,
   };
 }
 
@@ -909,13 +966,33 @@ export function getBookingSettings(): BookingSettings {
   return { ...readDatabase().settings };
 }
 
-export function updateBookingSettings(input: BookingSettings): BookingSettings {
-  if (!Number.isFinite(input.minLeadTimeMinutes) || input.minLeadTimeMinutes < 0) {
+export function updateBookingSettings(input: Partial<BookingSettings>): BookingSettings {
+  if (
+    input.minLeadTimeMinutes != null &&
+    (!Number.isFinite(input.minLeadTimeMinutes) || input.minLeadTimeMinutes < 0)
+  ) {
     throw new Error("Booking lead time is invalid");
   }
 
+  if (
+    input.sameDayReminderMinutes != null &&
+    (!Number.isFinite(input.sameDayReminderMinutes) || input.sameDayReminderMinutes <= 0)
+  ) {
+    throw new Error("Same day reminder is invalid");
+  }
+
+  if (
+    input.dayBeforeReminderMinutes != null &&
+    (!Number.isFinite(input.dayBeforeReminderMinutes) || input.dayBeforeReminderMinutes <= 0)
+  ) {
+    throw new Error("Day before reminder is invalid");
+  }
+
   const data = readDatabase();
-  data.settings = normalizeBookingSettings(input);
+  data.settings = normalizeBookingSettings({
+    ...data.settings,
+    ...input,
+  });
   writeDatabase(data);
   return { ...data.settings };
 }
@@ -1453,7 +1530,12 @@ export function getLatestBookedLeadByTelegramId(telegramId: string): Lead | null
 
 export function listDueReminders(date = new Date()): DueReminder[] {
   const data = readDatabase();
+  const settings = data.settings;
   const now = date.getTime();
+
+  if (!settings.remindersEnabled) {
+    return [];
+  }
 
   return data.leads
     .filter(
@@ -1468,8 +1550,9 @@ export function listDueReminders(date = new Date()): DueReminder[] {
       const diffMinutes = Math.round((appointmentAt - now) / 60000);
 
       if (
+        settings.sameDayReminderEnabled &&
         diffMinutes > 0 &&
-        diffMinutes <= 120 &&
+        diffMinutes <= settings.sameDayReminderMinutes &&
         !lead.reminderSameDaySentAt
       ) {
         items.push({ lead: mapLead(lead, data), kind: "same_day" });
@@ -1477,8 +1560,9 @@ export function listDueReminders(date = new Date()): DueReminder[] {
       }
 
       if (
-        diffMinutes > 120 &&
-        diffMinutes <= 24 * 60 &&
+        settings.dayBeforeReminderEnabled &&
+        diffMinutes > settings.sameDayReminderMinutes &&
+        diffMinutes <= settings.dayBeforeReminderMinutes &&
         !lead.reminderDayBeforeSentAt
       ) {
         items.push({ lead: mapLead(lead, data), kind: "day_before" });

@@ -15,6 +15,7 @@ import {
   updateLeadMaster,
   updateLeadStatus,
   updateBookingSettings,
+  updateManagerSettings,
   updateMaster,
   updateService,
 } from "../../lib/leads";
@@ -41,6 +42,7 @@ function revalidateLeadViews(id: string) {
   revalidatePath(`/leads/${id}`);
   revalidatePath("/calendar");
   revalidatePath("/masters");
+  revalidatePath("/profile");
 }
 
 function redirectWithParams(path: string, params?: Record<string, string>) {
@@ -67,6 +69,10 @@ function parseServiceDuration(rawValue: FormDataEntryValue | null) {
 function parseNonNegativeInteger(rawValue: FormDataEntryValue | null) {
   const value = Number(String(rawValue ?? "").trim());
   return Number.isInteger(value) && value >= 0 ? value : Number.NaN;
+}
+
+function parseBoolean(rawValue: FormDataEntryValue | null) {
+  return String(rawValue ?? "") === "true";
 }
 
 function parseWeeklySchedule(formData: FormData): MasterScheduleDay[] {
@@ -404,4 +410,53 @@ export async function updateBookingSettingsAction(formData: FormData) {
   revalidatePath("/calendar");
   revalidatePath("/leads");
   redirectWithParams("/masters", { success_code: "booking_settings_updated" });
+}
+
+export async function updateManagerSettingsAction(formData: FormData) {
+  const managerName = String(formData.get("managerName") ?? "").trim();
+  const managerRole = String(formData.get("managerRole") ?? "").trim();
+  const remindersEnabled = parseBoolean(formData.get("remindersEnabled"));
+  const dayBeforeReminderEnabled = parseBoolean(formData.get("dayBeforeReminderEnabled"));
+  const sameDayReminderEnabled = parseBoolean(formData.get("sameDayReminderEnabled"));
+  const dayBeforeReminderMinutes = parseNonNegativeInteger(
+    formData.get("dayBeforeReminderMinutes"),
+  );
+  const sameDayReminderMinutes = parseNonNegativeInteger(
+    formData.get("sameDayReminderMinutes"),
+  );
+
+  if (!managerName) {
+    redirectWithParams("/profile", { error_code: "manager_name_required" });
+  }
+
+  if (!managerRole) {
+    redirectWithParams("/profile", { error_code: "manager_role_required" });
+  }
+
+  if (Number.isNaN(dayBeforeReminderMinutes)) {
+    redirectWithParams("/profile", { error_code: "day_before_invalid" });
+  }
+
+  if (Number.isNaN(sameDayReminderMinutes)) {
+    redirectWithParams("/profile", { error_code: "same_day_invalid" });
+  }
+
+  try {
+    await updateManagerSettings({
+      managerName,
+      managerRole,
+      remindersEnabled,
+      dayBeforeReminderEnabled,
+      dayBeforeReminderMinutes,
+      sameDayReminderEnabled,
+      sameDayReminderMinutes,
+    });
+  } catch {
+    redirectWithParams("/profile", { error_code: "manager_settings_unknown" });
+  }
+
+  revalidatePath("/profile");
+  revalidatePath("/masters");
+  revalidatePath("/leads");
+  redirectWithParams("/profile", { success_code: "manager_settings_updated" });
 }

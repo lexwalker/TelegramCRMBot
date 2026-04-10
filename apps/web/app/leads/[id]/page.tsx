@@ -109,6 +109,15 @@ export default async function LeadDetailsPage({
     cancelledBooking: locale === "ru" ? "Запись отменена" : "Booking cancelled",
     completedBooking: locale === "ru" ? "Визит завершен" : "Visit completed",
     noShowBooking: locale === "ru" ? "Клиент не пришел" : "Client did not show up",
+    quickStatuses: locale === "ru" ? "Быстрые действия" : "Quick actions",
+    quickStatusesHint:
+      locale === "ru"
+        ? "Для частых сценариев можно обновить статус одним нажатием."
+        : "Use one-tap buttons for the most common status changes.",
+    doneNeedsPrice:
+      locale === "ru"
+        ? "Для быстрого перевода в «Готово» сначала нужна сумма по заявке."
+        : "To mark as done quickly, the lead needs a final amount first.",
   };
 
   const statCards = [
@@ -155,6 +164,13 @@ export default async function LeadDetailsPage({
           : lead.appointmentAt
             ? localText.activeBooking
             : dict.detail.bookingNone;
+  const quickDonePrice = lead.finalPrice ?? lead.service?.price ?? null;
+  const quickStatusButtons = [
+    { value: "CONFIRMED", label: dict.status.CONFIRMED },
+    { value: "IN_PROGRESS", label: dict.status.IN_PROGRESS },
+    { value: "NO_SHOW", label: dict.status.NO_SHOW },
+    { value: "CANCELLED", label: dict.status.CANCELLED },
+  ] as const;
 
   return (
     <main className="grid gap-6 xl:grid-cols-[1.16fr_0.84fr]">
@@ -366,6 +382,51 @@ export default async function LeadDetailsPage({
               {dict.common.saveStatus}
             </button>
           </form>
+
+          <div className="mt-6 rounded-[1.4rem] border border-white/10 bg-white/6 p-4">
+            <p className="text-[11px] uppercase tracking-[0.22em] text-white/45">
+              {localText.quickStatuses}
+            </p>
+            <p className="mt-2 text-sm leading-6 text-white/60">{localText.quickStatusesHint}</p>
+
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              {quickStatusButtons.map((button) => (
+                <form key={button.value} action={updateLeadStatusAction}>
+                  <input type="hidden" name="id" value={lead.id} />
+                  <input type="hidden" name="status" value={button.value} />
+                  <button
+                    type="submit"
+                    className="w-full rounded-full border border-white/12 bg-white/8 px-4 py-3 text-sm font-medium text-white transition hover:border-white/24 hover:bg-white/12"
+                  >
+                    {button.label}
+                  </button>
+                </form>
+              ))}
+
+              <form action={updateLeadStatusAction} className="sm:col-span-2">
+                <input type="hidden" name="id" value={lead.id} />
+                <input type="hidden" name="status" value="DONE" />
+                {quickDonePrice != null ? (
+                  <input type="hidden" name="finalPrice" value={quickDonePrice} />
+                ) : null}
+                <button
+                  type="submit"
+                  disabled={quickDonePrice == null}
+                  className={`w-full rounded-full px-4 py-3 text-sm font-medium transition ${
+                    quickDonePrice == null
+                      ? "cursor-not-allowed border border-white/10 bg-white/5 text-white/35"
+                      : "border border-[rgba(78,220,143,0.28)] bg-[rgba(78,220,143,0.16)] text-white hover:border-[rgba(78,220,143,0.4)] hover:bg-[rgba(78,220,143,0.24)]"
+                  }`}
+                >
+                  {dict.status.DONE}
+                </button>
+              </form>
+            </div>
+
+            {quickDonePrice == null ? (
+              <p className="mt-3 text-xs leading-5 text-white/50">{localText.doneNeedsPrice}</p>
+            ) : null}
+          </div>
         </section>
 
         <section className="rounded-[2rem] border border-[color:var(--border)] bg-[color:var(--surface)] p-8 shadow-[var(--shadow-md)]">

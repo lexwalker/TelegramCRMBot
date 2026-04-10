@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { Inter, Manrope } from "next/font/google";
 import { AppNavigation } from "../components/app-navigation";
 import { LanguageSwitcher } from "../components/language-switcher";
@@ -10,6 +11,7 @@ import {
   getThemeCookieName,
   resolveThemePreference,
 } from "../lib/theme";
+import { getBookingSettings } from "../lib/leads";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -75,9 +77,11 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const botConnected = true;
   const locale = await getCurrentLocale();
   const themePreference = await getCurrentThemePreference();
   const theme = resolveThemePreference(themePreference);
+  const settings = await getBookingSettings();
   const dict = getDictionary(locale);
   const todayLabel = formatTodayLabel(locale);
   const themeInitScript = THEME_INIT_SCRIPT.replace(
@@ -125,16 +129,15 @@ export default async function RootLayout({
                 </div>
 
                 <div className="pt-4">
-                  <div className="rounded-[1.5rem] border border-white/10 bg-white/6 px-3 py-3 text-center text-white/72">
-                    <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-2xl bg-white/10 text-sm font-semibold">
-                      AI
+                  <div className="rounded-[1.35rem] border border-white/8 bg-white/[0.04] px-3 py-3 text-center text-white/64">
+                    <div className="flex items-center justify-center gap-2">
+                      <span
+                        className={`status-dot ${
+                          botConnected ? "status-dot-online" : "status-dot-offline"
+                        }`}
+                      />
+                      <span className="text-sm font-semibold text-white/88">Bot</span>
                     </div>
-                    <p className="mt-2 text-[10px] uppercase tracking-[0.2em] text-white/42">
-                      {dict.layout.botSyncTitle}
-                    </p>
-                    <p className="mt-1 text-sm font-semibold text-white">
-                      {dict.layout.botSyncStatus}
-                    </p>
                   </div>
                 </div>
               </div>
@@ -153,19 +156,22 @@ export default async function RootLayout({
                     <HeaderPill label={dict.layout.liveChip} accent />
                     <ThemeSwitcher currentTheme={themePreference} />
                     <LanguageSwitcher currentLocale={locale} />
-                    <div className="flex items-center gap-3 rounded-[1.45rem] border border-[color:var(--border-soft)] bg-[color:var(--surface-strong)] px-3 py-2.5 shadow-[0_10px_24px_rgba(50,72,230,0.08)]">
+                    <Link
+                      href="/profile"
+                      className="flex items-center gap-3 rounded-[1.45rem] border border-[color:var(--border-soft)] bg-[color:var(--surface-strong)] px-3 py-2.5 shadow-[0_10px_24px_rgba(50,72,230,0.08)] hover:border-[color:var(--accent-soft)] hover:bg-[color:var(--surface-muted)]"
+                    >
                       <div className="text-right">
                         <p className="text-[10px] uppercase tracking-[0.2em] text-[color:var(--muted)]">
-                          CRM operator
+                          {settings.managerRole}
                         </p>
                         <p className="text-sm font-semibold text-[color:var(--foreground)]">
-                          Alexander
+                          {settings.managerName}
                         </p>
                       </div>
                       <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[linear-gradient(135deg,var(--accent),#92a4ff)] text-sm font-semibold text-white">
-                        A
+                        {settings.managerName.slice(0, 1).toUpperCase()}
                       </div>
-                    </div>
+                    </Link>
                   </div>
                 </div>
               </header>

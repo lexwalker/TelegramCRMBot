@@ -190,6 +190,18 @@ export function updateBookingSettings(minLeadTimeMinutes: number) {
   return Promise.resolve(updateBookingSettingsInDb({ minLeadTimeMinutes }));
 }
 
+export function updateManagerSettings(input: {
+  managerName: string;
+  managerRole: string;
+  remindersEnabled: boolean;
+  dayBeforeReminderEnabled: boolean;
+  dayBeforeReminderMinutes: number;
+  sameDayReminderEnabled: boolean;
+  sameDayReminderMinutes: number;
+}) {
+  return Promise.resolve(updateBookingSettingsInDb(input));
+}
+
 export function getMonthlyRevenue(date?: Date) {
   return Promise.resolve(getMonthlyRevenueFromDb(date));
 }
