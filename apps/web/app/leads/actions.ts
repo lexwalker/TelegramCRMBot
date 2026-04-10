@@ -1,4 +1,4 @@
-﻿"use server";
+"use server";
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -112,6 +112,18 @@ export async function updateLeadStatusAction(formData: FormData) {
   await updateLeadStatus(id, status, finalPrice);
   revalidateLeadViews(id);
   redirect(`/leads/${id}`);
+}
+
+export async function quickUpdateLeadStatusAction(formData: FormData) {
+  const id = String(formData.get("id") ?? "");
+  const status = String(formData.get("status") ?? "") as LeadStatus;
+
+  if (!id || !allowedStatuses.includes(status) || status === "DONE") {
+    throw new Error("Invalid quick status payload");
+  }
+
+  await updateLeadStatus(id, status);
+  revalidateLeadViews(id);
 }
 
 export async function addLeadNoteAction(formData: FormData) {

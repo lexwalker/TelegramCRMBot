@@ -2,6 +2,7 @@
 import { StatusBadge } from "../../components/status-badge";
 import { listActiveMasters, listLeads } from "../../lib/leads";
 import { getCurrentLocale, getDictionary, getLocaleTag } from "../../lib/i18n";
+import { quickUpdateLeadStatusAction } from "../leads/actions";
 
 export const dynamic = "force-dynamic";
 
@@ -196,9 +197,116 @@ function getSlotLeadMap(
   );
 }
 
+function getLeadTone(status: string) {
+  switch (status) {
+    case "CONFIRMED":
+      return {
+        cardClassName:
+          "border-[rgba(76,199,186,0.2)] bg-[linear-gradient(180deg,rgba(76,199,186,0.08),var(--surface-strong))]",
+        markerClassName: "bg-[#12a99d]",
+      };
+    case "CANCELLED":
+      return {
+        cardClassName:
+          "border-[rgba(255,111,127,0.2)] bg-[linear-gradient(180deg,rgba(255,111,127,0.08),var(--surface-strong))]",
+        markerClassName: "bg-[color:var(--danger)]",
+      };
+    case "NO_SHOW":
+      return {
+        cardClassName:
+          "border-[rgba(255,189,99,0.22)] bg-[linear-gradient(180deg,rgba(255,189,99,0.1),var(--surface-strong))]",
+        markerClassName: "bg-[color:var(--warning)]",
+      };
+    case "DONE":
+      return {
+        cardClassName:
+          "border-[rgba(53,201,120,0.2)] bg-[linear-gradient(180deg,rgba(53,201,120,0.08),var(--surface-strong))]",
+        markerClassName: "bg-[color:var(--success)]",
+      };
+    case "IN_PROGRESS":
+      return {
+        cardClassName:
+          "border-[rgba(255,187,84,0.2)] bg-[linear-gradient(180deg,rgba(255,187,84,0.08),var(--surface-strong))]",
+        markerClassName: "bg-[#d68a16]",
+      };
+    default:
+      return {
+        cardClassName:
+          "border-[rgba(91,109,255,0.16)] bg-[linear-gradient(180deg,rgba(91,109,255,0.06),var(--surface-strong))]",
+        markerClassName: "bg-[color:var(--accent)]",
+      };
+  }
+}
+
+function getSlotTone(leads: Awaited<ReturnType<typeof listLeads>>) {
+  if (leads.some((lead) => lead.status === "NO_SHOW")) {
+    return "no_show" as const;
+  }
+
+  if (leads.some((lead) => lead.status === "CANCELLED")) {
+    return "cancelled" as const;
+  }
+
+  if (leads.some((lead) => lead.status === "CONFIRMED")) {
+    return "confirmed" as const;
+  }
+
+  if (leads.some((lead) => lead.status === "DONE")) {
+    return "done" as const;
+  }
+
+  if (leads.some((lead) => lead.status === "IN_PROGRESS")) {
+    return "in_progress" as const;
+  }
+
+  if (leads.length > 0) {
+    return "new" as const;
+  }
+
+  return "free" as const;
+}
+
+function getSlotToneClassName(tone: ReturnType<typeof getSlotTone>, selected: boolean) {
+  const selectedMap = {
+    free: "bg-white/20",
+    new: "bg-white",
+    confirmed: "bg-[rgba(110,255,208,0.96)]",
+    done: "bg-[rgba(106,233,148,0.96)]",
+    cancelled: "bg-[rgba(255,143,158,0.96)]",
+    no_show: "bg-[rgba(255,215,149,0.96)]",
+    in_progress: "bg-[rgba(255,215,149,0.96)]",
+  } as const;
+
+  const defaultMap = {
+    free: "bg-black/8",
+    new: "bg-[color:var(--accent)]",
+    confirmed: "bg-[#12a99d]",
+    done: "bg-[color:var(--success)]",
+    cancelled: "bg-[color:var(--danger)]",
+    no_show: "bg-[color:var(--warning)]",
+    in_progress: "bg-[#d68a16]",
+  } as const;
+
+  return selected ? selectedMap[tone] : defaultMap[tone];
+}
+
 export default async function CalendarPage({ searchParams }: CalendarPageProps) {
   const locale = await getCurrentLocale();
   const dict = getDictionary(locale);
+  const quickActionText =
+    locale === "ru"
+      ? {
+          title: "Быстрые действия",
+          confirm: "Подтвердить",
+          noShow: "Не пришел",
+          cancel: "Отменить",
+        }
+      : {
+          title: "Quick actions",
+          confirm: "Confirm",
+          noShow: "No-show",
+          cancel: "Cancel",
+        };
   const resolvedSearchParams = (await searchParams) ?? {};
   const selectedDate = resolvedSearchParams.date ?? getTodayKey();
   const [leads, activeMasters] = await Promise.all([listLeads(), listActiveMasters()]);
@@ -245,6 +353,7 @@ export default async function CalendarPage({ searchParams }: CalendarPageProps) 
         slot,
         isBusy: slotLeads.length > 0,
         isFull: activeMasterCount > 0 && slotLeads.length >= activeMasterCount,
+        tone: getSlotTone(slotLeads),
       };
     });
     const freeCountByDay = slotStates.filter((slot) => !slot.isFull).length;
@@ -332,19 +441,7 @@ export default async function CalendarPage({ searchParams }: CalendarPageProps) 
                         day.slotStates.slice(0, 6).map((slot) => (
                           <span
                             key={`${day.key}-${slot.slot}`}
-                            className={`h-1.5 flex-1 rounded-full ${
-                              isSelected
-                                ? slot.isFull
-                                  ? "bg-[rgba(255,207,152,0.94)]"
-                                  : slot.isBusy
-                                    ? "bg-white"
-                                    : "bg-white/20"
-                                : slot.isFull
-                                  ? "bg-[color:var(--warning)]"
-                                  : slot.isBusy
-                                    ? "bg-[color:var(--accent)]"
-                                    : "bg-black/8"
-                            }`}
+                            className={`h-1.5 flex-1 rounded-full ${getSlotToneClassName(slot.tone, isSelected)}`}
                           />
                         ))
                       )}
@@ -401,6 +498,7 @@ export default async function CalendarPage({ searchParams }: CalendarPageProps) 
                 slotSummaries.map((slot) => {
                   const progress = activeMasterCount ? Math.round((slot.occupiedCount / activeMasterCount) * 100) : 0;
                   const fillWidth = slot.occupiedCount === 0 ? 10 : Math.max(14, progress);
+                  const slotTone = getSlotTone(slot.leads);
 
                   return (
                     <div key={slot.slot} className="rounded-[1.2rem] border border-[color:var(--border-soft)] bg-[color:var(--surface-muted)] p-3">
@@ -410,7 +508,7 @@ export default async function CalendarPage({ searchParams }: CalendarPageProps) 
                       </div>
                     <div className="mt-2 h-2 rounded-full bg-[color:var(--surface-strong)]">
                         <div
-                          className={`h-full rounded-full ${slot.occupiedCount === 0 ? "bg-[color:var(--success)]" : slot.remainingCount === 0 ? "bg-[color:var(--warning)]" : "bg-[color:var(--accent)]"}`}
+                          className={`h-full rounded-full ${getSlotToneClassName(slotTone, false)}`}
                           style={{ width: `${fillWidth}%` }}
                         />
                       </div>
@@ -501,10 +599,11 @@ export default async function CalendarPage({ searchParams }: CalendarPageProps) 
                     ) : (
                       <div className="grid gap-3">
                         {slot.leads.map((lead) => (
-                          <div key={`${slot.slot}-${lead.id}`} className="rounded-[1.35rem] border border-[color:var(--border-soft)] bg-[color:var(--surface-strong)] p-4">
+                          <div key={`${slot.slot}-${lead.id}`} className={`rounded-[1.35rem] border p-4 ${getLeadTone(lead.status).cardClassName}`}>
                             <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                               <div className="min-w-0">
                                 <div className="flex flex-wrap items-center gap-2.5">
+                                  <span className={`h-2.5 w-2.5 rounded-full ${getLeadTone(lead.status).markerClassName}`} />
                                   <h5 className="text-lg font-semibold tracking-[-0.03em] text-[color:var(--foreground)]" style={{ fontFamily: "var(--font-heading)" }}>
                                     {lead.name}
                                   </h5>
@@ -520,9 +619,51 @@ export default async function CalendarPage({ searchParams }: CalendarPageProps) 
                                 <p className="mt-2 line-clamp-2 text-sm leading-6 text-[color:var(--foreground-soft)]">{lead.comment}</p>
                               </div>
 
-                              <Link href={`/leads/${lead.id}`} className="inline-flex items-center justify-center rounded-full bg-[color:var(--accent)] px-4 py-2 text-sm font-medium text-[color:var(--accent-foreground)] transition hover:bg-[color:var(--accent-strong)]">
-                                {dict.common.openLead}
-                              </Link>
+                              <div className="flex w-full max-w-[360px] flex-col gap-2.5">
+                                <div className="grid grid-cols-3 gap-2">
+                                  <form action={quickUpdateLeadStatusAction}>
+                                    <input type="hidden" name="id" value={lead.id} />
+                                    <input type="hidden" name="status" value="CONFIRMED" />
+                                    <button
+                                      type="submit"
+                                      className="w-full rounded-full border border-[rgba(91,109,255,0.18)] bg-[color:var(--accent-soft)] px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-[color:var(--accent-strong)] transition hover:border-[color:var(--accent)]"
+                                    >
+                                      {quickActionText.confirm}
+                                    </button>
+                                  </form>
+
+                                  <form action={quickUpdateLeadStatusAction}>
+                                    <input type="hidden" name="id" value={lead.id} />
+                                    <input type="hidden" name="status" value="NO_SHOW" />
+                                    <button
+                                      type="submit"
+                                      className="w-full rounded-full border border-[rgba(255,189,99,0.2)] bg-[color:var(--warning-soft)] px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#d98924] transition hover:border-[color:var(--warning)]"
+                                    >
+                                      {quickActionText.noShow}
+                                    </button>
+                                  </form>
+
+                                  <form action={quickUpdateLeadStatusAction}>
+                                    <input type="hidden" name="id" value={lead.id} />
+                                    <input type="hidden" name="status" value="CANCELLED" />
+                                    <button
+                                      type="submit"
+                                      className="w-full rounded-full border border-[rgba(255,107,107,0.2)] bg-[color:var(--danger-soft)] px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-[color:var(--danger)] transition hover:border-[color:var(--danger)]"
+                                    >
+                                      {quickActionText.cancel}
+                                    </button>
+                                  </form>
+                                </div>
+
+                                <div className="flex items-center justify-between gap-3">
+                                  <p className="text-[11px] uppercase tracking-[0.14em] text-[color:var(--muted)]">
+                                    {quickActionText.title}
+                                  </p>
+                                  <Link href={`/leads/${lead.id}`} className="inline-flex items-center justify-center rounded-full bg-[color:var(--accent)] px-4 py-2 text-sm font-medium text-[color:var(--accent-foreground)] transition hover:bg-[color:var(--accent-strong)]">
+                                    {dict.common.openLead}
+                                  </Link>
+                                </div>
+                              </div>
                             </div>
                           </div>
                         ))}

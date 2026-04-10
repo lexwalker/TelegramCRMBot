@@ -133,6 +133,9 @@ export default async function HomePage({ searchParams }: HomePageProps) {
   const bookedLeads = leads.filter((lead) => Boolean(lead.appointmentAt)).length;
   const activeLeads = leads.filter((lead) => lead.status === "IN_PROGRESS").length;
   const completedLeads = leads.filter((lead) => lead.status === "DONE").length;
+  const confirmedLeads = leads.filter((lead) => lead.status === "CONFIRMED").length;
+  const cancelledLeads = leads.filter((lead) => lead.status === "CANCELLED").length;
+  const noShowLeads = leads.filter((lead) => lead.status === "NO_SHOW").length;
   const activeMasters = masters.filter((master) => master.isActive).length;
   const recentSeries = getRecentSeries(leads, locale);
   const weeklyRevenueSeries = getWeeklyRevenueSeries(leads, locale);
@@ -227,9 +230,12 @@ export default async function HomePage({ searchParams }: HomePageProps) {
       noteClassName: "text-[color:var(--muted)]",
     },
     {
-      label: dict.home.metrics.activeMasters[0],
-      note: dict.home.metrics.activeMasters[1],
-      value: activeMasters,
+      label: dict.status.CONFIRMED,
+      note:
+        locale === "ru"
+          ? "Клиенты подтвердили визит"
+          : "Clients confirmed the visit",
+      value: confirmedLeads,
       className: "bg-[color:var(--surface-strong)] text-[color:var(--foreground)]",
       noteClassName: "text-[color:var(--muted)]",
     },
@@ -371,7 +377,21 @@ export default async function HomePage({ searchParams }: HomePageProps) {
                 value: leads.filter((lead) => lead.status === "NEW").length,
                 tone: "bg-[#6e7dff]",
               },
-              { label: dict.status.IN_PROGRESS, value: activeLeads, tone: "bg-[#ffb85e]" },
+              {
+                label: dict.status.CONFIRMED,
+                value: confirmedLeads,
+                tone: "bg-[#5b6dff]",
+              },
+              {
+                label: dict.status.CANCELLED,
+                value: cancelledLeads,
+                tone: "bg-[#ff6b6b]",
+              },
+              {
+                label: dict.status.NO_SHOW,
+                value: noShowLeads,
+                tone: "bg-[#ffb85e]",
+              },
               { label: dict.status.DONE, value: completedLeads, tone: "bg-[#35c978]" },
             ].map((item) => (
               <div key={item.label}>
@@ -390,6 +410,52 @@ export default async function HomePage({ searchParams }: HomePageProps) {
                     }}
                   />
                 </div>
+              </div>
+
+            ))}
+          </div>
+
+          <div className="mt-6 grid gap-3 md:grid-cols-3">
+            {[
+              {
+                label: dict.status.CONFIRMED,
+                value: String(confirmedLeads),
+                note:
+                  locale === "ru"
+                    ? "Подтвержденные визиты"
+                    : "Confirmed bookings",
+              },
+              {
+                label: dict.status.CANCELLED,
+                value: String(cancelledLeads),
+                note:
+                  locale === "ru"
+                    ? "Отмены за весь период"
+                    : "Cancellations overall",
+              },
+              {
+                label: dict.status.NO_SHOW,
+                value: String(noShowLeads),
+                note:
+                  locale === "ru"
+                    ? "Клиенты не пришли"
+                    : "Clients missed the visit",
+              },
+            ].map((item) => (
+              <div
+                key={item.label}
+                className="rounded-[1.45rem] border border-[color:var(--border-soft)] bg-[color:var(--surface-muted)] px-4 py-4"
+              >
+                <p className="text-[11px] uppercase tracking-[0.2em] text-[color:var(--muted)]">
+                  {item.label}
+                </p>
+                <p
+                  className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-[color:var(--foreground)]"
+                  style={{ fontFamily: "var(--font-heading)" }}
+                >
+                  {item.value}
+                </p>
+                <p className="mt-1 text-sm text-[color:var(--foreground-soft)]">{item.note}</p>
               </div>
             ))}
           </div>
@@ -548,3 +614,5 @@ export default async function HomePage({ searchParams }: HomePageProps) {
     </main>
   );
 }
+
+

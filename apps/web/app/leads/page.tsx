@@ -1,7 +1,8 @@
-﻿import Link from "next/link";
+import Link from "next/link";
 import { getLeads, listMasters, listServices } from "../../lib/leads";
 import { StatusBadge } from "../../components/status-badge";
 import { getCurrentLocale, getDictionary, getLocaleTag } from "../../lib/i18n";
+import { quickUpdateLeadStatusAction } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -68,6 +69,10 @@ export default async function LeadsPage({ searchParams }: LeadsPageProps) {
     noService: locale === "ru" ? "Не выбрана" : "Not selected",
     price: locale === "ru" ? "Сумма" : "Amount",
     noPrice: locale === "ru" ? "Не указана" : "Not set",
+    quickActions: locale === "ru" ? "Быстро" : "Quick",
+    confirm: locale === "ru" ? "Подтвердить" : "Confirm",
+    noShow: locale === "ru" ? "Не пришёл" : "No-show",
+    cancel: locale === "ru" ? "Отменить" : "Cancel",
   };
 
   const filteredLeads = result.ok
@@ -238,13 +243,14 @@ export default async function LeadsPage({ searchParams }: LeadsPageProps) {
               </Link>
             </form>
 
-            <div className="hidden grid-cols-[1.2fr_1fr_1fr_0.9fr_0.9fr_0.8fr] gap-4 px-4 text-[11px] font-semibold uppercase tracking-[0.2em] text-[color:var(--muted)] xl:grid">
+            <div className="hidden grid-cols-[1.2fr_1fr_1fr_0.9fr_0.9fr_0.8fr_1fr] gap-4 px-4 text-[11px] font-semibold uppercase tracking-[0.2em] text-[color:var(--muted)] xl:grid">
               <span>{dict.leads.columns.client}</span>
               <span>{dict.leads.columns.context}</span>
               <span>{dict.leads.columns.appointment}</span>
               <span>{dict.leads.columns.master}</span>
               <span>{uiText.service}</span>
               <span>{dict.leads.columns.status}</span>
+              <span>{uiText.quickActions}</span>
             </div>
 
             {filteredLeads.length === 0 ? (
@@ -255,15 +261,16 @@ export default async function LeadsPage({ searchParams }: LeadsPageProps) {
             ) : (
               <div className="mt-4 space-y-3">
                 {filteredLeads.map((lead) => (
-                  <Link
+                  <article
                     key={lead.id}
-                    href={`/leads/${lead.id}`}
-                    className="grid gap-4 rounded-[1.6rem] border border-[color:var(--border-soft)] bg-[linear-gradient(180deg,var(--surface-strong),var(--surface-muted))] p-4 transition hover:-translate-y-0.5 hover:border-[rgba(117,134,255,0.34)] hover:bg-[linear-gradient(180deg,var(--surface-contrast),var(--surface-strong))] hover:shadow-[var(--shadow-md)] xl:grid-cols-[1.2fr_1fr_1fr_0.9fr_0.9fr_0.8fr] xl:items-center"
+                    className="grid gap-4 rounded-[1.6rem] border border-[color:var(--border-soft)] bg-[linear-gradient(180deg,var(--surface-strong),var(--surface-muted))] p-4 transition hover:-translate-y-0.5 hover:border-[rgba(117,134,255,0.34)] hover:bg-[linear-gradient(180deg,var(--surface-contrast),var(--surface-strong))] hover:shadow-[var(--shadow-md)] xl:grid-cols-[1.2fr_1fr_1fr_0.9fr_0.9fr_0.8fr_1fr] xl:items-center"
                   >
                     <div className="space-y-2">
-                      <h3 className="text-lg font-semibold tracking-[-0.03em] text-[color:var(--foreground)]" style={{ fontFamily: "var(--font-heading)" }}>
-                        {lead.name}
-                      </h3>
+                      <Link href={`/leads/${lead.id}`} className="block">
+                        <h3 className="text-lg font-semibold tracking-[-0.03em] text-[color:var(--foreground)]" style={{ fontFamily: "var(--font-heading)" }}>
+                          {lead.name}
+                        </h3>
+                      </Link>
                       <p className="text-sm text-[color:var(--foreground-soft)]">{lead.phone}</p>
                     </div>
 
@@ -287,7 +294,40 @@ export default async function LeadsPage({ searchParams }: LeadsPageProps) {
                     <div className="flex justify-start xl:justify-end">
                       <StatusBadge status={lead.status} locale={locale} />
                     </div>
-                  </Link>
+
+                    <div className="flex flex-wrap gap-2 xl:justify-end">
+                      <form action={quickUpdateLeadStatusAction}>
+                        <input type="hidden" name="id" value={lead.id} />
+                        <input type="hidden" name="status" value="CONFIRMED" />
+                        <button
+                          type="submit"
+                          className="rounded-full border border-[rgba(83,211,198,0.24)] bg-[rgba(83,211,198,0.12)] px-3 py-2 text-xs font-medium text-[color:var(--foreground)] transition hover:border-[rgba(83,211,198,0.38)] hover:bg-[rgba(83,211,198,0.2)]"
+                        >
+                          {uiText.confirm}
+                        </button>
+                      </form>
+                      <form action={quickUpdateLeadStatusAction}>
+                        <input type="hidden" name="id" value={lead.id} />
+                        <input type="hidden" name="status" value="NO_SHOW" />
+                        <button
+                          type="submit"
+                          className="rounded-full border border-[rgba(255,178,88,0.24)] bg-[rgba(255,178,88,0.12)] px-3 py-2 text-xs font-medium text-[color:var(--foreground)] transition hover:border-[rgba(255,178,88,0.36)] hover:bg-[rgba(255,178,88,0.18)]"
+                        >
+                          {uiText.noShow}
+                        </button>
+                      </form>
+                      <form action={quickUpdateLeadStatusAction}>
+                        <input type="hidden" name="id" value={lead.id} />
+                        <input type="hidden" name="status" value="CANCELLED" />
+                        <button
+                          type="submit"
+                          className="rounded-full border border-[rgba(255,111,127,0.22)] bg-[rgba(255,111,127,0.12)] px-3 py-2 text-xs font-medium text-[color:var(--danger)] transition hover:border-[rgba(255,111,127,0.34)] hover:bg-[rgba(255,111,127,0.18)]"
+                        >
+                          {uiText.cancel}
+                        </button>
+                      </form>
+                    </div>
+                  </article>
                 ))}
               </div>
             )}
