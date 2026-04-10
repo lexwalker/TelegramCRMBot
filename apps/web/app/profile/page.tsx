@@ -49,6 +49,11 @@ export default async function ProfilePage({ searchParams }: ProfilePageProps) {
     name: locale === "ru" ? "Имя менеджера" : "Manager name",
     role: locale === "ru" ? "Подпись / роль" : "Role label",
     remindersTitle: locale === "ru" ? "Напоминания клиентам" : "Client reminders",
+    templatesTitle: locale === "ru" ? "Шаблоны сообщений бота" : "Bot message templates",
+    templatesDescription:
+      locale === "ru"
+        ? "Здесь можно задать тон общения для бота и уведомлений. Поддерживаются плейсхолдеры: {client_name}, {service_name}, {appointment}, {lead_id}, {manager_name}, {start_command}, {reschedule_command}, {cancel_command}."
+        : "Use these templates to adjust the bot tone. Supported placeholders: {client_name}, {service_name}, {appointment}, {lead_id}, {manager_name}, {start_command}, {reschedule_command}, {cancel_command}.",
     remindersDescription:
       locale === "ru"
         ? "Если выключить напоминания полностью, бот не будет лишний раз писать клиенту перед записью."
@@ -63,6 +68,17 @@ export default async function ProfilePage({ searchParams }: ProfilePageProps) {
       locale === "ru"
         ? "Использовать напоминание в день визита"
         : "Use same-day reminder",
+    welcomeTemplate: locale === "ru" ? "Приветствие в начале записи" : "Welcome message",
+    bookingCreatedTemplate:
+      locale === "ru" ? "Подтверждение новой записи" : "Booking created message",
+    reminderDayBeforeTemplate:
+      locale === "ru" ? "Напоминание заранее" : "Early reminder message",
+    reminderSameDayTemplate:
+      locale === "ru" ? "Напоминание в день визита" : "Same-day reminder message",
+    bookingRescheduledTemplate:
+      locale === "ru" ? "Сообщение о переносе" : "Rescheduled booking message",
+    bookingCancelledTemplate:
+      locale === "ru" ? "Сообщение об отмене" : "Cancelled booking message",
     save: locale === "ru" ? "Сохранить профиль" : "Save profile",
     on: locale === "ru" ? "Включено" : "Enabled",
     off: locale === "ru" ? "Выключено" : "Disabled",
@@ -89,6 +105,10 @@ export default async function ProfilePage({ searchParams }: ProfilePageProps) {
       locale === "ru"
         ? "Не удалось сохранить настройки профиля. Попробуйте ещё раз."
         : "Could not save manager settings. Please try again.",
+    template_required:
+      locale === "ru"
+        ? "Все шаблоны должны быть заполнены. Если какой-то текст не нужен, лучше оставить короткую версию, чем пустое поле."
+        : "All templates must be filled in. If a message should be shorter, keep a short version instead of an empty field.",
   };
 
   const errorText = resolvedSearchParams.error_code
@@ -239,6 +259,83 @@ export default async function ProfilePage({ searchParams }: ProfilePageProps) {
                   defaultValue={settings.sameDayReminderMinutes}
                   className="mt-2 w-full rounded-[1.3rem] border border-[color:var(--border)] bg-[color:var(--surface-strong)] px-4 py-3 outline-none transition focus:border-[color:var(--accent)]"
                 />
+              </div>
+            </div>
+          </div>
+
+          <div className="xl:col-span-2 rounded-[1.8rem] border border-[color:var(--border)] bg-[color:var(--surface-muted)] p-5">
+            <div>
+              <p className="text-sm uppercase tracking-[0.2em] text-[color:var(--muted)]">
+                {text.templatesTitle}
+              </p>
+              <p className="mt-2 text-sm leading-6 text-[color:var(--foreground-soft)]">
+                {text.templatesDescription}
+              </p>
+            </div>
+
+            <div className="mt-5 grid gap-4">
+              <div>
+                <label className="block text-sm text-[color:var(--muted)]">{text.welcomeTemplate}</label>
+                <textarea
+                  name="welcomeTemplate"
+                  rows={4}
+                  defaultValue={settings.welcomeTemplate}
+                  className="mt-2 w-full rounded-[1.3rem] border border-[color:var(--border)] bg-[color:var(--surface-strong)] px-4 py-3 outline-none transition focus:border-[color:var(--accent)]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm text-[color:var(--muted)]">{text.bookingCreatedTemplate}</label>
+                <textarea
+                  name="bookingCreatedTemplate"
+                  rows={6}
+                  defaultValue={settings.bookingCreatedTemplate}
+                  className="mt-2 w-full rounded-[1.3rem] border border-[color:var(--border)] bg-[color:var(--surface-strong)] px-4 py-3 outline-none transition focus:border-[color:var(--accent)]"
+                />
+              </div>
+
+              <div className="grid gap-4 xl:grid-cols-2">
+                <div>
+                  <label className="block text-sm text-[color:var(--muted)]">{text.reminderDayBeforeTemplate}</label>
+                  <textarea
+                    name="reminderDayBeforeTemplate"
+                    rows={5}
+                    defaultValue={settings.reminderDayBeforeTemplate}
+                    className="mt-2 w-full rounded-[1.3rem] border border-[color:var(--border)] bg-[color:var(--surface-strong)] px-4 py-3 outline-none transition focus:border-[color:var(--accent)]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm text-[color:var(--muted)]">{text.reminderSameDayTemplate}</label>
+                  <textarea
+                    name="reminderSameDayTemplate"
+                    rows={5}
+                    defaultValue={settings.reminderSameDayTemplate}
+                    className="mt-2 w-full rounded-[1.3rem] border border-[color:var(--border)] bg-[color:var(--surface-strong)] px-4 py-3 outline-none transition focus:border-[color:var(--accent)]"
+                  />
+                </div>
+              </div>
+
+              <div className="grid gap-4 xl:grid-cols-2">
+                <div>
+                  <label className="block text-sm text-[color:var(--muted)]">{text.bookingRescheduledTemplate}</label>
+                  <textarea
+                    name="bookingRescheduledTemplate"
+                    rows={5}
+                    defaultValue={settings.bookingRescheduledTemplate}
+                    className="mt-2 w-full rounded-[1.3rem] border border-[color:var(--border)] bg-[color:var(--surface-strong)] px-4 py-3 outline-none transition focus:border-[color:var(--accent)]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm text-[color:var(--muted)]">{text.bookingCancelledTemplate}</label>
+                  <textarea
+                    name="bookingCancelledTemplate"
+                    rows={5}
+                    defaultValue={settings.bookingCancelledTemplate}
+                    className="mt-2 w-full rounded-[1.3rem] border border-[color:var(--border)] bg-[color:var(--surface-strong)] px-4 py-3 outline-none transition focus:border-[color:var(--accent)]"
+                  />
+                </div>
               </div>
             </div>
           </div>

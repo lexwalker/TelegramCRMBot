@@ -11,6 +11,7 @@ import {
 import {
   countLeads,
   createLead,
+  getBookingSettings,
   getLeadById,
   getLatestBookedLeadByTelegramId,
   listActiveServices,
@@ -18,6 +19,7 @@ import {
   listAvailableTimeSlotsForDate,
   listDueReminders,
   markReminderSent,
+  renderBotTemplate,
   updateLeadAppointment,
   updateLeadStatus,
 } from "@crm-bot/db";
@@ -165,6 +167,26 @@ function buildAppointmentIso(dateKey: string, time: string) {
 
 function getTelegramId(ctx: BotContext) {
   return ctx.from?.id ? String(ctx.from.id) : null;
+}
+
+function buildTemplateVariables(input: {
+  clientName?: string | null;
+  serviceName?: string | null;
+  appointment?: string | null;
+  leadId?: string | null;
+}) {
+  const settings = getBookingSettings();
+
+  return {
+    client_name: input.clientName ?? "",
+    service_name: input.serviceName ?? "",
+    appointment: input.appointment ?? "",
+    lead_id: input.leadId ?? "",
+    manager_name: settings.managerName,
+    start_command: "/start",
+    reschedule_command: "/reschedule",
+    cancel_command: "/cancel_booking",
+  };
 }
 
 function buildServiceKeyboard() {
@@ -360,24 +382,24 @@ async function moveFromPhoneToComment(ctx: BotContext, rawPhone: string) {
 
 async function sendDueReminders(bot: Bot<BotContext>) {
   const reminders = listDueReminders();
+  const settings = getBookingSettings();
 
   for (const reminder of reminders) {
     if (!reminder.lead.telegramId || !reminder.lead.appointmentAt) {
       continue;
     }
 
-    const reminderText =
+    const reminderText = renderBotTemplate(
       reminder.kind === "day_before"
-        ? [
-            "Небольшое напоминание о вашей записи на завтра.",
-            `Ждём вас: ${formatAppointment(reminder.lead.appointmentAt)}`,
-            "Если всё в силе, подтвердите запись одной кнопкой ниже.",
-          ].join("\n")
-        : [
-            "Напоминаю о вашей записи сегодня.",
-            `Время: ${formatAppointment(reminder.lead.appointmentAt)}`,
-            "Если планы изменились, ниже можно быстро перенести или отменить запись.",
-          ].join("\n");
+        ? settings.reminderDayBeforeTemplate
+        : settings.reminderSameDayTemplate,
+      buildTemplateVariables({
+        clientName: reminder.lead.name,
+        serviceName: reminder.lead.service?.name,
+        appointment: formatAppointment(reminder.lead.appointmentAt),
+        leadId: reminder.lead.id,
+      }),
+    );
 
     try {
       await bot.api.sendMessage(reminder.lead.telegramId, reminderText, {
@@ -421,6 +443,7 @@ if (!token) {
 
   async function startLeadFlow(ctx: BotContext) {
     const services = listActiveServices();
+    const settings = getBookingSettings();
 
     if (services.length === 0) {
       await ctx.reply(
@@ -434,10 +457,10 @@ if (!token) {
     ctx.session.step = "service";
 
     await ctx.reply(
-      [
-        "Рада помочь с записью.",
-        "Давайте начнём с услуги, а дальше я быстро проведу вас до удобного времени.",
-      ].join("\n"),
+      renderBotTemplate(
+        settings.welcomeTemplate,
+        buildTemplateVariables({ clientName: ctx.from?.first_name ?? null }),
+      ),
       {
         reply_markup: buildServiceKeyboard(),
       },
@@ -555,13 +578,19 @@ if (!token) {
     }
 
     updateLeadAppointment(leadId, null, { actor: "bot" });
+    const settings = getBookingSettings();
 
     await ctx.answerCallbackQuery({ text: "Запись отменена" });
     await ctx.editMessageText(
-      [
-        "Готово, запись отменена.",
-        "Если позже захотите подобрать новое время, просто напишите /start.",
-      ].join("\n"),
+      renderBotTemplate(
+        settings.bookingCancelledTemplate,
+        buildTemplateVariables({
+          clientName: lead.name,
+          serviceName: lead.service?.name,
+          appointment: formatAppointment(lead.appointmentAt),
+          leadId: lead.id,
+        }),
+      ),
     );
   });
 
@@ -803,22 +832,20 @@ if (!token) {
       const updatedLead = updateLeadAppointment(ctx.session.targetLeadId, appointmentAt, {
         actor: "bot",
       });
+      const settings = getBookingSettings();
       ctx.session = getInitialSession();
 
       await ctx.answerCallbackQuery({ text: "Запись перенесена" });
       await ctx.editMessageText(
-        [
-          "Готово, запись перенесена.",
-          `Новое время: ${formatAppointment(appointmentAt)}`,
-        ].join("\n"),
-      );
-      await ctx.reply(
-        [
-          "Всё получилось.",
-          `Номер заявки: ${updatedLead.id}`,
-          `Новая дата и время: ${formatAppointment(appointmentAt)}`,
-          "За день до визита я ещё аккуратно напомню о записи.",
-        ].join("\n"),
+        renderBotTemplate(
+          settings.bookingRescheduledTemplate,
+          buildTemplateVariables({
+            clientName: updatedLead.name,
+            serviceName: updatedLead.service?.name,
+            appointment: formatAppointment(appointmentAt),
+            leadId: updatedLead.id,
+          }),
+        ),
       );
       return;
     }
@@ -834,6 +861,7 @@ if (!token) {
     });
 
     const serviceName = ctx.session.draft.serviceName ?? lead.service?.name ?? "Услуга";
+    const settings = getBookingSettings();
     ctx.session = getInitialSession();
 
     await ctx.answerCallbackQuery({ text: "Время выбрано" });
@@ -844,15 +872,15 @@ if (!token) {
       ].join("\n"),
     );
     await ctx.reply(
-      [
-        "Готово, запись сохранена.",
-        `Номер заявки: ${lead.id}`,
-        `Услуга: ${serviceName}`,
-        `Дата и время записи: ${formatAppointment(appointmentAt)}`,
-        "За день до визита я напомню о записи и попрошу подтвердить её одной кнопкой.",
-        "Если захотите перенести запись, отправьте /reschedule.",
-        "Если захотите отменить запись, отправьте /cancel_booking.",
-      ].join("\n"),
+      renderBotTemplate(
+        settings.bookingCreatedTemplate,
+        buildTemplateVariables({
+          clientName: lead.name,
+          serviceName,
+          appointment: formatAppointment(appointmentAt),
+          leadId: lead.id,
+        }),
+      ),
     );
   });
 

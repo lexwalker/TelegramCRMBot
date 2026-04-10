@@ -440,6 +440,20 @@ export async function updateManagerSettingsAction(formData: FormData) {
   const sameDayReminderMinutes = parseNonNegativeInteger(
     formData.get("sameDayReminderMinutes"),
   );
+  const welcomeTemplate = String(formData.get("welcomeTemplate") ?? "").trim();
+  const bookingCreatedTemplate = String(formData.get("bookingCreatedTemplate") ?? "").trim();
+  const reminderDayBeforeTemplate = String(
+    formData.get("reminderDayBeforeTemplate") ?? "",
+  ).trim();
+  const reminderSameDayTemplate = String(
+    formData.get("reminderSameDayTemplate") ?? "",
+  ).trim();
+  const bookingRescheduledTemplate = String(
+    formData.get("bookingRescheduledTemplate") ?? "",
+  ).trim();
+  const bookingCancelledTemplate = String(
+    formData.get("bookingCancelledTemplate") ?? "",
+  ).trim();
 
   if (!managerName) {
     redirectWithParams("/profile", { error_code: "manager_name_required" });
@@ -457,6 +471,17 @@ export async function updateManagerSettingsAction(formData: FormData) {
     redirectWithParams("/profile", { error_code: "same_day_invalid" });
   }
 
+  if (
+    !welcomeTemplate ||
+    !bookingCreatedTemplate ||
+    !reminderDayBeforeTemplate ||
+    !reminderSameDayTemplate ||
+    !bookingRescheduledTemplate ||
+    !bookingCancelledTemplate
+  ) {
+    redirectWithParams("/profile", { error_code: "template_required" });
+  }
+
   try {
     await updateManagerSettings({
       managerName,
@@ -466,6 +491,12 @@ export async function updateManagerSettingsAction(formData: FormData) {
       dayBeforeReminderMinutes,
       sameDayReminderEnabled,
       sameDayReminderMinutes,
+      welcomeTemplate,
+      bookingCreatedTemplate,
+      reminderDayBeforeTemplate,
+      reminderSameDayTemplate,
+      bookingRescheduledTemplate,
+      bookingCancelledTemplate,
     });
   } catch {
     redirectWithParams("/profile", { error_code: "manager_settings_unknown" });

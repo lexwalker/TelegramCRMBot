@@ -29,6 +29,12 @@ export type BookingSettings = {
   dayBeforeReminderMinutes: number;
   sameDayReminderEnabled: boolean;
   sameDayReminderMinutes: number;
+  welcomeTemplate: string;
+  bookingCreatedTemplate: string;
+  reminderDayBeforeTemplate: string;
+  reminderSameDayTemplate: string;
+  bookingRescheduledTemplate: string;
+  bookingCancelledTemplate: string;
 };
 
 export type MasterScheduleDay = {
@@ -188,6 +194,8 @@ export type DueReminder = {
   kind: ReminderKind;
 };
 
+export type BotTemplateVariables = Record<string, string | number | null | undefined>;
+
 const DATABASE_URL = process.env.DATABASE_URL ?? "file:./data/db.json";
 const DEFAULT_TIME_INCREMENT_MINUTES = 60;
 const DEFAULT_SERVICE_DURATION_MINUTES = 60;
@@ -200,6 +208,39 @@ const DEFAULT_BOOKING_SETTINGS: BookingSettings = {
   dayBeforeReminderMinutes: 24 * 60,
   sameDayReminderEnabled: true,
   sameDayReminderMinutes: 120,
+  welcomeTemplate: [
+    "Рада помочь с записью.",
+    "Сначала выберите услугу, а дальше я быстро проведу вас до удобного времени.",
+  ].join("\n"),
+  bookingCreatedTemplate: [
+    "Готово, запись сохранена.",
+    "Заявка: {lead_id}",
+    "Услуга: {service_name}",
+    "Когда ждём: {appointment}",
+    "За день до визита я напомню о записи.",
+    "Если захотите перенести запись, отправьте {reschedule_command}.",
+    "Если захотите отменить запись, отправьте {cancel_command}.",
+  ].join("\n"),
+  reminderDayBeforeTemplate: [
+    "Небольшое напоминание о вашей записи.",
+    "Ждём вас: {appointment}",
+    "Если всё в силе, подтвердите запись одной кнопкой ниже.",
+  ].join("\n"),
+  reminderSameDayTemplate: [
+    "Напоминаю о вашей записи сегодня.",
+    "Время: {appointment}",
+    "Если планы изменились, ниже можно быстро перенести или отменить запись.",
+  ].join("\n"),
+  bookingRescheduledTemplate: [
+    "Запись обновили.",
+    "Новое время: {appointment}",
+    "Если новое время не подходит, можно воспользоваться {reschedule_command} или {cancel_command}.",
+  ].join("\n"),
+  bookingCancelledTemplate: [
+    "Запись отменили.",
+    "Отменённое время: {appointment}",
+    "Если захотите выбрать новое время, просто отправьте {start_command}.",
+  ].join("\n"),
 };
 const ACTIVE_BOOKING_STATUSES: LeadStatus[] = ["NEW", "CONFIRMED", "IN_PROGRESS"];
 const DEFAULT_MASTERS: Master[] = [
@@ -295,6 +336,13 @@ function minutesToTime(value: number) {
     .toString()
     .padStart(2, "0");
   return `${hours}:${minutes}`;
+}
+
+export function renderBotTemplate(template: string, variables: BotTemplateVariables) {
+  return template.replace(/\{([a-zA-Z0-9_]+)\}/g, (_, key: string) => {
+    const value = variables[key];
+    return value == null ? "" : String(value);
+  });
 }
 
 function getDateKeyFromDate(date: Date) {
@@ -403,6 +451,34 @@ function normalizeBookingSettings(settings: BookingSettings | undefined): Bookin
     dayBeforeReminderMinutesRaw,
     sameDayReminderMinutes + 1,
   );
+  const welcomeTemplate =
+    typeof settings?.welcomeTemplate === "string" && settings.welcomeTemplate.trim()
+      ? settings.welcomeTemplate.trim()
+      : DEFAULT_BOOKING_SETTINGS.welcomeTemplate;
+  const bookingCreatedTemplate =
+    typeof settings?.bookingCreatedTemplate === "string" && settings.bookingCreatedTemplate.trim()
+      ? settings.bookingCreatedTemplate.trim()
+      : DEFAULT_BOOKING_SETTINGS.bookingCreatedTemplate;
+  const reminderDayBeforeTemplate =
+    typeof settings?.reminderDayBeforeTemplate === "string" &&
+    settings.reminderDayBeforeTemplate.trim()
+      ? settings.reminderDayBeforeTemplate.trim()
+      : DEFAULT_BOOKING_SETTINGS.reminderDayBeforeTemplate;
+  const reminderSameDayTemplate =
+    typeof settings?.reminderSameDayTemplate === "string" &&
+    settings.reminderSameDayTemplate.trim()
+      ? settings.reminderSameDayTemplate.trim()
+      : DEFAULT_BOOKING_SETTINGS.reminderSameDayTemplate;
+  const bookingRescheduledTemplate =
+    typeof settings?.bookingRescheduledTemplate === "string" &&
+    settings.bookingRescheduledTemplate.trim()
+      ? settings.bookingRescheduledTemplate.trim()
+      : DEFAULT_BOOKING_SETTINGS.bookingRescheduledTemplate;
+  const bookingCancelledTemplate =
+    typeof settings?.bookingCancelledTemplate === "string" &&
+    settings.bookingCancelledTemplate.trim()
+      ? settings.bookingCancelledTemplate.trim()
+      : DEFAULT_BOOKING_SETTINGS.bookingCancelledTemplate;
 
   return {
     minLeadTimeMinutes,
@@ -413,6 +489,12 @@ function normalizeBookingSettings(settings: BookingSettings | undefined): Bookin
     dayBeforeReminderMinutes,
     sameDayReminderEnabled,
     sameDayReminderMinutes,
+    welcomeTemplate,
+    bookingCreatedTemplate,
+    reminderDayBeforeTemplate,
+    reminderSameDayTemplate,
+    bookingRescheduledTemplate,
+    bookingCancelledTemplate,
   };
 }
 

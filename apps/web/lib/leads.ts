@@ -213,6 +213,12 @@ export function updateManagerSettings(input: {
   dayBeforeReminderMinutes: number;
   sameDayReminderEnabled: boolean;
   sameDayReminderMinutes: number;
+  welcomeTemplate: string;
+  bookingCreatedTemplate: string;
+  reminderDayBeforeTemplate: string;
+  reminderSameDayTemplate: string;
+  bookingRescheduledTemplate: string;
+  bookingCancelledTemplate: string;
 }) {
   return Promise.resolve(updateBookingSettingsInDb(input));
 }

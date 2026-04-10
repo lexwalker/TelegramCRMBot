@@ -1,6 +1,6 @@
 ﻿import { execFileSync } from "node:child_process";
 import * as https from "node:https";
-import type { Lead } from "@crm-bot/db";
+import { getBookingSettings, renderBotTemplate, type Lead } from "@crm-bot/db";
 import { HttpsProxyAgent } from "https-proxy-agent";
 
 const MOSCOW_TIMEZONE = "Europe/Moscow";
@@ -132,18 +132,34 @@ function hasTelegramChat(lead: Lead) {
   return Boolean(lead.telegramId);
 }
 
+function buildTemplateVariables(lead: Lead, appointment: string | null) {
+  const settings = getBookingSettings();
+
+  return {
+    client_name: lead.name,
+    service_name: lead.service?.name ?? "",
+    appointment: appointment ?? "",
+    lead_id: lead.id,
+    manager_name: settings.managerName,
+    start_command: "/start",
+    reschedule_command: "/reschedule",
+    cancel_command: "/cancel_booking",
+  };
+}
+
 export async function notifyLeadRescheduled(lead: Lead) {
   if (!lead.telegramId || !lead.appointmentAt) {
     return false;
   }
 
+  const settings = getBookingSettings();
+
   return sendTelegramMessage(
     lead.telegramId,
-    [
-      "Запись обновили.",
-      `Новое время: ${formatAppointment(lead.appointmentAt)}`,
-      "Если новое время вам не подходит, можно воспользоваться /reschedule или /cancel_booking.",
-    ].join("\n"),
+    renderBotTemplate(
+      settings.bookingRescheduledTemplate,
+      buildTemplateVariables(lead, formatAppointment(lead.appointmentAt)),
+    ),
   );
 }
 
@@ -152,12 +168,13 @@ export async function notifyLeadCancelled(lead: Lead, previousAppointmentAt: str
     return false;
   }
 
+  const settings = getBookingSettings();
+
   return sendTelegramMessage(
     lead.telegramId as string,
-    [
-      "Запись отменили.",
-      `Отменённое время: ${formatAppointment(previousAppointmentAt)}`,
-      "Если захотите выбрать новое время, просто отправьте /start.",
-    ].join("\n"),
+    renderBotTemplate(
+      settings.bookingCancelledTemplate,
+      buildTemplateVariables(lead, formatAppointment(previousAppointmentAt)),
+    ),
   );
 }
