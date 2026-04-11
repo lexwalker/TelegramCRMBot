@@ -215,7 +215,7 @@ export default async function LeadDetailsPage({
                   {lead.service?.name ?? localText.noService}
                 </span>
                 <Link
-                  href={`/clients/${lead.customerId}`}
+                  href={`/clients/${encodeURIComponent(lead.customerId)}`}
                   className="rounded-full border border-white/14 bg-white/6 px-3 py-1.5 text-white transition hover:border-white/28 hover:bg-white/10"
                 >
                   {localText.customerCard}

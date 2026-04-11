@@ -1,0 +1,211 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum LeadStatus {
+  NEW
+  CONFIRMED
+  IN_PROGRESS
+  DONE
+  CANCELLED
+  NO_SHOW
+}
+
+enum LeadHistoryAction {
+  lead_created
+  status_changed
+  note_added
+  appointment_changed
+  appointment_cancelled
+  master_changed
+  service_changed
+  price_updated
+  reminder_sent
+}
+
+enum LeadHistoryActor {
+  crm
+  bot
+  system
+}
+
+model Organization {
+  id          String                @id
+  name        String
+  slug        String                @unique
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+  users       ManagerUser[]
+  telegramBot TelegramBotConnection?
+  settings    BookingSettings?
+  masters     Master[]
+  services    Service[]
+  leads       Lead[]
+  notes       LeadNote[]
+  history     LeadHistoryEntry[]
+  customerNotes CustomerNote[]
+}
+
+model ManagerUser {
+  id             String       @id
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String
+  email          String
+  role           String
+  passwordHash   String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([organizationId])
+  @@unique([organizationId, email])
+}
+
+model TelegramBotConnection {
+  id             String       @id
+  organizationId String       @unique
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  token          String
+  username       String?
+  isActive       Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+}
+
+model BookingSettings {
+  organizationId             String       @id
+  organization               Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  minLeadTimeMinutes         Int          @default(0)
+  managerName                String       @default("Alexander")
+  managerRole                String       @default("Owner")
+  remindersEnabled           Boolean      @default(true)
+  dayBeforeReminderEnabled   Boolean      @default(true)
+  dayBeforeReminderMinutes   Int          @default(1440)
+  sameDayReminderEnabled     Boolean      @default(true)
+  sameDayReminderMinutes     Int          @default(180)
+  welcomeTemplate            String       @db.Text
+  bookingCreatedTemplate     String       @db.Text
+  reminderDayBeforeTemplate  String       @db.Text
+  reminderSameDayTemplate    String       @db.Text
+  bookingRescheduledTemplate String       @db.Text
+  bookingCancelledTemplate   String       @db.Text
+}
+
+model Master {
+  id             String              @id
+  organizationId String
+  organization   Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String
+  isActive       Boolean             @default(true)
+  sortOrder      Int                 @default(0)
+  weeklySchedule MasterScheduleDay[]
+  leads          Lead[]
+
+  @@index([organizationId])
+  @@index([organizationId, isActive, sortOrder])
+}
+
+model MasterScheduleDay {
+  id         String   @id
+  masterId    String
+  master      Master   @relation(fields: [masterId], references: [id], onDelete: Cascade)
+  dayOfWeek   Int
+  isWorking   Boolean  @default(true)
+  startTime   String
+  endTime     String
+
+  @@unique([masterId, dayOfWeek])
+}
+
+model Service {
+  id             String       @id
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String
+  durationMinutes Int
+  price          Int?
+  isActive       Boolean      @default(true)
+  sortOrder      Int          @default(0)
+  leads          Lead[]
+
+  @@index([organizationId])
+  @@index([organizationId, isActive, sortOrder])
+}
+
+model Lead {
+  id                     String            @id
+  organizationId         String
+  organization           Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  telegramId             String?
+  name                   String
+  phone                  String
+  comment                String
+  status                 LeadStatus
+  serviceId              String?
+  service                Service?          @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  appointmentAt          DateTime?
+  masterId               String?
+  master                 Master?           @relation(fields: [masterId], references: [id], onDelete: SetNull)
+  finalPrice             Int?
+  createdAt              DateTime
+  updatedAt              DateTime
+  confirmedAt            DateTime?
+  cancelledAt            DateTime?
+  noShowAt               DateTime?
+  completedAt            DateTime?
+  reminderDayBeforeSentAt DateTime?
+  reminderSameDaySentAt  DateTime?
+  notes                  LeadNote[]
+  history                LeadHistoryEntry[]
+
+  @@index([organizationId])
+  @@index([organizationId, telegramId])
+  @@index([organizationId, appointmentAt])
+  @@index([organizationId, status])
+  @@index([organizationId, createdAt])
+}
+
+model LeadNote {
+  id             String       @id
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  leadId         String
+  lead           Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  text           String       @db.Text
+  createdAt      DateTime
+
+  @@index([organizationId])
+  @@index([leadId, createdAt])
+}
+
+model LeadHistoryEntry {
+  id             String            @id
+  organizationId String
+  organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  leadId         String
+  lead           Lead              @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  action         LeadHistoryAction
+  actor          LeadHistoryActor
+  message        String            @db.Text
+  createdAt      DateTime
+
+  @@index([organizationId])
+  @@index([leadId, createdAt])
+}
+
+model CustomerNote {
+  id             String       @id
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customerId     String
+  text           String       @db.Text
+  createdAt      DateTime
+
+  @@index([organizationId])
+  @@index([customerId, createdAt])
+}

@@ -8,7 +8,11 @@
     "dev:bot": "pnpm --filter @crm-bot/db run build && pnpm --filter @crm-bot/bot run dev",
     "build": "pnpm --filter @crm-bot/db run build && pnpm --filter @crm-bot/web run build && pnpm --filter @crm-bot/bot run build",
     "db:build": "pnpm --filter @crm-bot/db run build",
-    "db:init": "pnpm --filter @crm-bot/db run init"
+    "db:init": "pnpm --filter @crm-bot/db run init",
+    "db:generate": "pnpm --filter @crm-bot/db run prisma:generate",
+    "db:push": "pnpm --filter @crm-bot/db run prisma:push",
+    "db:migrate": "pnpm --filter @crm-bot/db run prisma:migrate",
+    "db:import-json": "pnpm --filter @crm-bot/db run import:json"
   },
   "devDependencies": {
     "concurrently": "^9.2.1"

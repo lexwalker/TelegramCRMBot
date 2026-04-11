@@ -1,4 +1,4 @@
-import { ensureDatabase } from "./index.js";
+﻿import { ensureDatabase } from "./index.js";
 
-ensureDatabase();
+await ensureDatabase();
 console.log("Database initialized");

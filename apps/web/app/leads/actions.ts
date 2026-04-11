@@ -444,22 +444,11 @@ export async function updateManagerSettingsAction(formData: FormData) {
   const managerName = String(formData.get("managerName") ?? "").trim();
   const managerRole = String(formData.get("managerRole") ?? "").trim();
   const remindersEnabled = parseBoolean(formData.get("remindersEnabled"));
-  const dayBeforeReminderEnabled = parseBoolean(formData.get("dayBeforeReminderEnabled"));
-  const sameDayReminderEnabled = parseBoolean(formData.get("sameDayReminderEnabled"));
-  const dayBeforeReminderMinutes = parseNonNegativeInteger(
-    formData.get("dayBeforeReminderMinutes"),
-  );
-  const sameDayReminderMinutes = parseNonNegativeInteger(
-    formData.get("sameDayReminderMinutes"),
-  );
+  const singleReminderEnabled = parseBoolean(formData.get("singleReminderEnabled"));
+  const reminderMinutes = parseNonNegativeInteger(formData.get("reminderMinutes"));
   const welcomeTemplate = String(formData.get("welcomeTemplate") ?? "").trim();
   const bookingCreatedTemplate = String(formData.get("bookingCreatedTemplate") ?? "").trim();
-  const reminderDayBeforeTemplate = String(
-    formData.get("reminderDayBeforeTemplate") ?? "",
-  ).trim();
-  const reminderSameDayTemplate = String(
-    formData.get("reminderSameDayTemplate") ?? "",
-  ).trim();
+  const reminderTemplate = String(formData.get("reminderTemplate") ?? "").trim();
   const bookingRescheduledTemplate = String(
     formData.get("bookingRescheduledTemplate") ?? "",
   ).trim();
@@ -475,19 +464,14 @@ export async function updateManagerSettingsAction(formData: FormData) {
     redirectWithParams("/profile", { error_code: "manager_role_required" });
   }
 
-  if (Number.isNaN(dayBeforeReminderMinutes)) {
-    redirectWithParams("/profile", { error_code: "day_before_invalid" });
-  }
-
-  if (Number.isNaN(sameDayReminderMinutes)) {
-    redirectWithParams("/profile", { error_code: "same_day_invalid" });
+  if (Number.isNaN(reminderMinutes)) {
+    redirectWithParams("/profile", { error_code: "reminder_invalid" });
   }
 
   if (
     !welcomeTemplate ||
     !bookingCreatedTemplate ||
-    !reminderDayBeforeTemplate ||
-    !reminderSameDayTemplate ||
+    !reminderTemplate ||
     !bookingRescheduledTemplate ||
     !bookingCancelledTemplate
   ) {
@@ -499,14 +483,14 @@ export async function updateManagerSettingsAction(formData: FormData) {
       managerName,
       managerRole,
       remindersEnabled,
-      dayBeforeReminderEnabled,
-      dayBeforeReminderMinutes,
-      sameDayReminderEnabled,
-      sameDayReminderMinutes,
+      dayBeforeReminderEnabled: false,
+      dayBeforeReminderMinutes: reminderMinutes + 1,
+      sameDayReminderEnabled: singleReminderEnabled,
+      sameDayReminderMinutes: reminderMinutes,
       welcomeTemplate,
       bookingCreatedTemplate,
-      reminderDayBeforeTemplate,
-      reminderSameDayTemplate,
+      reminderDayBeforeTemplate: reminderTemplate,
+      reminderSameDayTemplate: reminderTemplate,
       bookingRescheduledTemplate,
       bookingCancelledTemplate,
     });

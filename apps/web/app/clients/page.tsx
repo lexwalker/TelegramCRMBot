@@ -150,7 +150,7 @@ export default async function ClientsPage({ searchParams }: ClientsPageProps) {
 
                 <div className="mt-5 flex flex-wrap gap-3">
                   <Link
-                    href={`/clients/${customer.id}`}
+                    href={`/clients/${encodeURIComponent(customer.id)}`}
                     className="rounded-full bg-[color:var(--accent)] px-5 py-3 text-sm font-medium text-[color:var(--accent-foreground)] transition hover:bg-[color:var(--accent-strong)]"
                   >
                     {text.openCustomer}

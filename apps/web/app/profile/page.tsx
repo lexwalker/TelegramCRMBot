@@ -44,7 +44,7 @@ export default async function ProfilePage({ searchParams }: ProfilePageProps) {
     title: locale === "ru" ? "Личные настройки CRM" : "Personal CRM settings",
     description:
       locale === "ru"
-        ? "Здесь можно управлять тем, как система ведёт себя от имени менеджера: как подписана карточка в шапке и как работают напоминания клиентам."
+        ? "Здесь можно управлять тем, как система ведёт себя от имени менеджера: как подписана карточка в шапке и когда клиент получает одно аккуратное напоминание перед визитом."
         : "Use this page to control how the CRM behaves on behalf of the manager: the profile badge in the header and how client reminders work.",
     name: locale === "ru" ? "Имя менеджера" : "Manager name",
     role: locale === "ru" ? "Подпись / роль" : "Role label",
@@ -56,25 +56,19 @@ export default async function ProfilePage({ searchParams }: ProfilePageProps) {
         : "Use these templates to adjust the bot tone. Supported placeholders: {client_name}, {service_name}, {appointment}, {lead_id}, {manager_name}, {start_command}, {reschedule_command}, {cancel_command}.",
     remindersDescription:
       locale === "ru"
-        ? "Если выключить напоминания полностью, бот не будет лишний раз писать клиенту перед записью."
+        ? "Бот отправляет одно напоминание перед визитом. Записи, созданные в тот же день, не получают это напоминание, чтобы не раздражать клиента."
         : "If reminders are disabled, the bot will stop messaging clients before their appointment.",
     remindersEnabled: locale === "ru" ? "Включить напоминания" : "Enable reminders",
-    firstReminder: locale === "ru" ? "Раннее напоминание, минут" : "Early reminder, minutes",
-    secondReminder:
-      locale === "ru" ? "Напоминание в день визита, минут" : "Same-day reminder, minutes",
-    firstEnabled:
-      locale === "ru" ? "Использовать раннее напоминание" : "Use early reminder",
-    secondEnabled:
+    singleReminder: locale === "ru" ? "Напоминание перед визитом, минут" : "Reminder before appointment, minutes",
+    singleEnabled:
       locale === "ru"
-        ? "Использовать напоминание в день визита"
-        : "Use same-day reminder",
+        ? "Использовать одно напоминание"
+        : "Use a single reminder",
     welcomeTemplate: locale === "ru" ? "Приветствие в начале записи" : "Welcome message",
     bookingCreatedTemplate:
       locale === "ru" ? "Подтверждение новой записи" : "Booking created message",
-    reminderDayBeforeTemplate:
-      locale === "ru" ? "Напоминание заранее" : "Early reminder message",
-    reminderSameDayTemplate:
-      locale === "ru" ? "Напоминание в день визита" : "Same-day reminder message",
+    reminderTemplate:
+      locale === "ru" ? "Текст напоминания" : "Reminder message",
     bookingRescheduledTemplate:
       locale === "ru" ? "Сообщение о переносе" : "Rescheduled booking message",
     bookingCancelledTemplate:
@@ -93,14 +87,10 @@ export default async function ProfilePage({ searchParams }: ProfilePageProps) {
       locale === "ru" ? "Укажите имя менеджера" : "Please enter a manager name",
     manager_role_required:
       locale === "ru" ? "Укажите подпись или роль менеджера" : "Please enter a manager role",
-    day_before_invalid:
+    reminder_invalid:
       locale === "ru"
-        ? "Время раннего напоминания должно быть целым числом минут больше нуля"
+        ? "Время напоминания должно быть целым числом минут больше нуля"
         : "Early reminder timing must be a whole number of minutes above zero",
-    same_day_invalid:
-      locale === "ru"
-        ? "Время напоминания в день визита должно быть целым числом минут больше нуля"
-        : "Same-day reminder timing must be a whole number of minutes above zero",
     manager_settings_unknown:
       locale === "ru"
         ? "Не удалось сохранить настройки профиля. Попробуйте ещё раз."
@@ -146,13 +136,8 @@ export default async function ProfilePage({ searchParams }: ProfilePageProps) {
               {settings.remindersEnabled ? text.on : text.off}
             </p>
             <p className="mt-3 text-sm text-white/62">
-              {settings.dayBeforeReminderEnabled
-                ? `${text.firstReminder}: ${settings.dayBeforeReminderMinutes}`
-                : text.off}
-            </p>
-            <p className="mt-1 text-sm text-white/62">
               {settings.sameDayReminderEnabled
-                ? `${text.secondReminder}: ${settings.sameDayReminderMinutes}`
+                ? `${text.singleReminder}: ${settings.sameDayReminderMinutes}`
                 : text.off}
             </p>
           </div>
@@ -214,33 +199,9 @@ export default async function ProfilePage({ searchParams }: ProfilePageProps) {
               </div>
 
               <div>
-                <label className="block text-sm text-[color:var(--muted)]">{text.firstEnabled}</label>
+                <label className="block text-sm text-[color:var(--muted)]">{text.singleEnabled}</label>
                 <select
-                  name="dayBeforeReminderEnabled"
-                  defaultValue={settings.dayBeforeReminderEnabled ? "true" : "false"}
-                  className="mt-2 w-full rounded-[1.3rem] border border-[color:var(--border)] bg-[color:var(--surface-strong)] px-4 py-3 outline-none transition focus:border-[color:var(--accent)]"
-                >
-                  <option value="true">{text.on}</option>
-                  <option value="false">{text.off}</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm text-[color:var(--muted)]">{text.firstReminder}</label>
-                <input
-                  type="number"
-                  min="1"
-                  step="1"
-                  name="dayBeforeReminderMinutes"
-                  defaultValue={settings.dayBeforeReminderMinutes}
-                  className="mt-2 w-full rounded-[1.3rem] border border-[color:var(--border)] bg-[color:var(--surface-strong)] px-4 py-3 outline-none transition focus:border-[color:var(--accent)]"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm text-[color:var(--muted)]">{text.secondEnabled}</label>
-                <select
-                  name="sameDayReminderEnabled"
+                  name="singleReminderEnabled"
                   defaultValue={settings.sameDayReminderEnabled ? "true" : "false"}
                   className="mt-2 w-full rounded-[1.3rem] border border-[color:var(--border)] bg-[color:var(--surface-strong)] px-4 py-3 outline-none transition focus:border-[color:var(--accent)]"
                 >
@@ -250,12 +211,12 @@ export default async function ProfilePage({ searchParams }: ProfilePageProps) {
               </div>
 
               <div className="md:col-span-2">
-                <label className="block text-sm text-[color:var(--muted)]">{text.secondReminder}</label>
+                <label className="block text-sm text-[color:var(--muted)]">{text.singleReminder}</label>
                 <input
                   type="number"
                   min="1"
                   step="1"
-                  name="sameDayReminderMinutes"
+                  name="reminderMinutes"
                   defaultValue={settings.sameDayReminderMinutes}
                   className="mt-2 w-full rounded-[1.3rem] border border-[color:var(--border)] bg-[color:var(--surface-strong)] px-4 py-3 outline-none transition focus:border-[color:var(--accent)]"
                 />
@@ -294,26 +255,14 @@ export default async function ProfilePage({ searchParams }: ProfilePageProps) {
                 />
               </div>
 
-              <div className="grid gap-4 xl:grid-cols-2">
-                <div>
-                  <label className="block text-sm text-[color:var(--muted)]">{text.reminderDayBeforeTemplate}</label>
-                  <textarea
-                    name="reminderDayBeforeTemplate"
-                    rows={5}
-                    defaultValue={settings.reminderDayBeforeTemplate}
-                    className="mt-2 w-full rounded-[1.3rem] border border-[color:var(--border)] bg-[color:var(--surface-strong)] px-4 py-3 outline-none transition focus:border-[color:var(--accent)]"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm text-[color:var(--muted)]">{text.reminderSameDayTemplate}</label>
-                  <textarea
-                    name="reminderSameDayTemplate"
-                    rows={5}
-                    defaultValue={settings.reminderSameDayTemplate}
-                    className="mt-2 w-full rounded-[1.3rem] border border-[color:var(--border)] bg-[color:var(--surface-strong)] px-4 py-3 outline-none transition focus:border-[color:var(--accent)]"
-                  />
-                </div>
+              <div>
+                <label className="block text-sm text-[color:var(--muted)]">{text.reminderTemplate}</label>
+                <textarea
+                  name="reminderTemplate"
+                  rows={5}
+                  defaultValue={settings.reminderSameDayTemplate}
+                  className="mt-2 w-full rounded-[1.3rem] border border-[color:var(--border)] bg-[color:var(--surface-strong)] px-4 py-3 outline-none transition focus:border-[color:var(--accent)]"
+                />
               </div>
 
               <div className="grid gap-4 xl:grid-cols-2">

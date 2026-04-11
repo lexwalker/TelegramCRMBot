@@ -132,9 +132,8 @@ function hasTelegramChat(lead: Lead) {
   return Boolean(lead.telegramId);
 }
 
-function buildTemplateVariables(lead: Lead, appointment: string | null) {
-  const settings = getBookingSettings();
-
+async function buildTemplateVariables(lead: Lead, appointment: string | null) {
+  const settings = await getBookingSettings();
   return {
     client_name: lead.name,
     service_name: lead.service?.name ?? "",
@@ -152,13 +151,17 @@ export async function notifyLeadRescheduled(lead: Lead) {
     return false;
   }
 
-  const settings = getBookingSettings();
+  const settings = await getBookingSettings();
+  const variables = await buildTemplateVariables(
+    lead,
+    formatAppointment(lead.appointmentAt),
+  );
 
   return sendTelegramMessage(
     lead.telegramId,
     renderBotTemplate(
       settings.bookingRescheduledTemplate,
-      buildTemplateVariables(lead, formatAppointment(lead.appointmentAt)),
+      variables,
     ),
   );
 }
@@ -168,13 +171,17 @@ export async function notifyLeadCancelled(lead: Lead, previousAppointmentAt: str
     return false;
   }
 
-  const settings = getBookingSettings();
+  const settings = await getBookingSettings();
+  const variables = await buildTemplateVariables(
+    lead,
+    formatAppointment(previousAppointmentAt),
+  );
 
   return sendTelegramMessage(
     lead.telegramId as string,
     renderBotTemplate(
       settings.bookingCancelledTemplate,
-      buildTemplateVariables(lead, formatAppointment(previousAppointmentAt)),
+      variables,
     ),
   );
 }

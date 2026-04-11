@@ -26,7 +26,7 @@ export default async function ClientDetailsPage({
 }) {
   const locale = await getCurrentLocale();
   const { id } = await params;
-  const customer = await getCustomerById(id);
+  const customer = await getCustomerById(decodeURIComponent(id));
 
   if (!customer) {
     notFound();
