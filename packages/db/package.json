@@ -8,6 +8,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./prisma": {
+      "types": "./dist/prisma.d.ts",
+      "default": "./dist/prisma.js"
     }
   },
   "scripts": {
@@ -19,7 +23,8 @@
     "import:json": "tsx src/import-json-to-postgres.ts"
   },
   "dependencies": {
-    "@prisma/client": "^6.16.1"
+    "@prisma/client": "^6.16.1",
+    "dotenv": "^17.2.3"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

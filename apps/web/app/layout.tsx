@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { Inter, Manrope } from "next/font/google";
 import { AppNavigation } from "../components/app-navigation";
 import { LanguageSwitcher } from "../components/language-switcher";
@@ -11,6 +13,8 @@ import {
   getThemeCookieName,
   resolveThemePreference,
 } from "../lib/theme";
+import { getCurrentManagerSession } from "../lib/auth";
+import { isAuthPublicPath } from "../lib/auth-shared";
 import { getBookingSettings } from "../lib/leads";
 import "./globals.css";
 
@@ -97,17 +101,50 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const requestHeaders = await headers();
+  const pathname = requestHeaders.get("x-pathname") ?? "/";
   const botConnected = true;
   const locale = await getCurrentLocale();
   const themePreference = await getCurrentThemePreference();
   const theme = resolveThemePreference(themePreference);
-  const settings = await getBookingSettings();
+  const session = await getCurrentManagerSession();
+  const isAuthPage = isAuthPublicPath(pathname);
   const dict = getDictionary(locale);
-  const todayLabel = formatTodayLabel(locale);
   const themeInitScript = THEME_INIT_SCRIPT.replace(
     "__COOKIE_NAME__",
     getThemeCookieName(),
   );
+
+  if (!isAuthPage && !session) {
+    redirect("/login");
+  }
+
+  if (isAuthPage && session) {
+    redirect("/");
+  }
+
+  if (isAuthPage) {
+    return (
+      <html
+        lang={locale}
+        data-theme={theme}
+        style={{ colorScheme: theme }}
+        suppressHydrationWarning
+      >
+        <head>
+          <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+        </head>
+        <body className={`${headingFont.variable} ${bodyFont.variable}`}>
+          <div className="mx-auto min-h-screen max-w-[1760px] px-3 py-4 sm:px-5 sm:py-6">
+            <PageTransition>{children}</PageTransition>
+          </div>
+        </body>
+      </html>
+    );
+  }
+
+  const settings = await getBookingSettings();
+  const todayLabel = formatTodayLabel(locale);
   const navItems = [
     { href: "/", label: dict.nav.overview, glyph: "grid" as const },
     { href: "/leads", label: dict.nav.leads, glyph: "list" as const },
@@ -186,14 +223,14 @@ export default async function RootLayout({
                     >
                       <div className="text-right">
                         <p className="text-[10px] uppercase tracking-[0.2em] text-[color:var(--muted)]">
-                          {settings.managerRole}
+                          {session?.user.role ?? settings.managerRole}
                         </p>
                         <p className="text-sm font-semibold text-[color:var(--foreground)]">
-                          {settings.managerName}
+                          {session?.user.name ?? settings.managerName}
                         </p>
                       </div>
                       <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[linear-gradient(135deg,var(--accent),#92a4ff)] text-sm font-semibold text-white">
-                        {settings.managerName.slice(0, 1).toUpperCase()}
+                        {(session?.user.name ?? settings.managerName).slice(0, 1).toUpperCase()}
                       </div>
                     </Link>
                   </div>

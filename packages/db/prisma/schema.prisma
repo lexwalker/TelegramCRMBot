@@ -56,14 +56,39 @@ model ManagerUser {
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   name           String
-  email          String
+  email          String       @unique
   role           String
   passwordHash   String?
+  emailVerifiedAt DateTime?
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
+  verificationTokens EmailVerificationToken[]
+  sessions       ManagerSession[]
 
   @@index([organizationId])
-  @@unique([organizationId, email])
+}
+
+model EmailVerificationToken {
+  id        String      @id
+  userId    String
+  user      ManagerUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String      @unique
+  expiresAt DateTime
+  createdAt DateTime    @default(now())
+
+  @@index([userId, createdAt])
+}
+
+model ManagerSession {
+  id        String      @id
+  userId    String
+  user      ManagerUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String      @unique
+  expiresAt DateTime
+  createdAt DateTime    @default(now())
+
+  @@index([userId, createdAt])
+  @@index([expiresAt])
 }
 
 model TelegramBotConnection {

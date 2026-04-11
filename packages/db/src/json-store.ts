@@ -239,7 +239,25 @@ export type DueReminder = {
 
 export type BotTemplateVariables = Record<string, string | number | null | undefined>;
 
-const DATABASE_URL = process.env.DATABASE_URL ?? "file:./data/db.json";
+function normalizeEnvValue(value: string | undefined) {
+  if (!value) {
+    return value;
+  }
+
+  const trimmed = value.trim();
+
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1);
+  }
+
+  return trimmed;
+}
+
+const DATABASE_URL = normalizeEnvValue(process.env.DATABASE_URL) ?? "file:./data/db.json";
+const IS_POSTGRES_DATABASE = /^postgres(?:ql)?:\/\//i.test(DATABASE_URL);
 const DEFAULT_TIME_INCREMENT_MINUTES = 60;
 const DEFAULT_SERVICE_DURATION_MINUTES = 60;
 const DEFAULT_ORGANIZATION_ID = "org_default";
@@ -374,7 +392,7 @@ function resolveDatabasePath(databaseUrl: string) {
 const databasePath = resolveDatabasePath(DATABASE_URL);
 const databaseDir = path.dirname(databasePath);
 
-if (databaseDir && databaseDir !== ".") {
+if (!IS_POSTGRES_DATABASE && databaseDir && databaseDir !== ".") {
   fs.mkdirSync(databaseDir, { recursive: true });
 }
 
@@ -400,9 +418,9 @@ const emptyDatabase: DatabaseShape = {
 };
 
 export function ensureDatabase() {
-  if (!fs.existsSync(databasePath)) {
-    fs.writeFileSync(databasePath, JSON.stringify(emptyDatabase, null, 2));
-  }
+if (!IS_POSTGRES_DATABASE && !fs.existsSync(databasePath)) {
+  fs.writeFileSync(databasePath, JSON.stringify(emptyDatabase, null, 2));
+}
 }
 
 ensureDatabase();

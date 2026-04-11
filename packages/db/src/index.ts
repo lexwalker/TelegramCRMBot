@@ -1,7 +1,31 @@
 import * as jsonStore from "./json-store.js";
 import * as postgresStore from "./postgres-store.js";
+export { prisma } from "./prisma.js";
 
-const usePostgres = /^postgres(?:ql)?:\/\//i.test(process.env.DATABASE_URL ?? "");
+function normalizeEnvValue(value: string | undefined) {
+  if (!value) {
+    return value;
+  }
+
+  const trimmed = value.trim();
+
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1);
+  }
+
+  return trimmed;
+}
+
+const databaseUrl = normalizeEnvValue(process.env.DATABASE_URL);
+
+if (databaseUrl) {
+  process.env.DATABASE_URL = databaseUrl;
+}
+
+const usePostgres = /^postgres(?:ql)?:\/\//i.test(databaseUrl ?? "");
 
 export type {
   BookingSettings,
