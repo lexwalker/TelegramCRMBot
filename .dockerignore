@@ -1,0 +1,15 @@
+node_modules
+.git
+.gitignore
+.codex-logs
+.local
+docs
+igma.fig
+tmp-tests
+data
+.env
+apps/*/.env
+packages/*/.env
+*.log
+.tmp_vps_key
+.tmp_vps_key.pub
