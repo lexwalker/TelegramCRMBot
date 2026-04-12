@@ -1,4 +1,6 @@
-﻿import { getBookingSettings } from "../../lib/leads";
+﻿import { logoutAction } from "../auth/actions";
+import { getCurrentManagerSession } from "../../lib/auth";
+import { getBookingSettings } from "../../lib/leads";
 import { getCurrentLocale } from "../../lib/i18n";
 import { updateManagerSettingsAction } from "../leads/actions";
 
@@ -37,6 +39,7 @@ function Feedback({
 export default async function ProfilePage({ searchParams }: ProfilePageProps) {
   const locale = await getCurrentLocale();
   const settings = await getBookingSettings();
+  const session = await getCurrentManagerSession();
   const resolvedSearchParams = (await searchParams) ?? {};
 
   const text = {
@@ -44,10 +47,21 @@ export default async function ProfilePage({ searchParams }: ProfilePageProps) {
     title: locale === "ru" ? "Личные настройки CRM" : "Personal CRM settings",
     description:
       locale === "ru"
-        ? "Здесь можно управлять тем, как система ведёт себя от имени менеджера: как подписана карточка в шапке и когда клиент получает одно аккуратное напоминание перед визитом."
-        : "Use this page to control how the CRM behaves on behalf of the manager: the profile badge in the header and how client reminders work.",
+        ? "Здесь можно управлять тем, как система выглядит для менеджера, когда клиентам приходят напоминания и какой аккаунт сейчас используется для входа в CRM."
+        : "Use this page to control the manager-facing profile, reminder timing, and the account currently signed into the CRM.",
+    accountTitle: locale === "ru" ? "Аккаунт менеджера" : "Manager account",
+    accountDescription:
+      locale === "ru"
+        ? "Этот аккаунт используется для входа в CRM. Подтверждённая почта позволяет безопасно восстанавливать доступ и подключать новые сценарии авторизации."
+        : "This account is used to sign in to the CRM. A verified email keeps recovery and future authentication flows secure.",
+    email: locale === "ru" ? "Email" : "Email",
+    role: locale === "ru" ? "Роль" : "Role",
+    verification: locale === "ru" ? "Подтверждение почты" : "Email verification",
+    verified: locale === "ru" ? "Подтверждена" : "Verified",
+    notVerified: locale === "ru" ? "Не подтверждена" : "Not verified",
+    logout: locale === "ru" ? "Выйти из аккаунта" : "Sign out",
     name: locale === "ru" ? "Имя менеджера" : "Manager name",
-    role: locale === "ru" ? "Подпись / роль" : "Role label",
+    roleLabel: locale === "ru" ? "Подпись / роль" : "Role label",
     remindersTitle: locale === "ru" ? "Напоминания клиентам" : "Client reminders",
     templatesTitle: locale === "ru" ? "Шаблоны сообщений бота" : "Bot message templates",
     templatesDescription:
@@ -57,18 +71,16 @@ export default async function ProfilePage({ searchParams }: ProfilePageProps) {
     remindersDescription:
       locale === "ru"
         ? "Бот отправляет одно напоминание перед визитом. Записи, созданные в тот же день, не получают это напоминание, чтобы не раздражать клиента."
-        : "If reminders are disabled, the bot will stop messaging clients before their appointment.",
+        : "The bot sends one reminder before the appointment. Same-day bookings do not receive it to avoid annoying the client.",
     remindersEnabled: locale === "ru" ? "Включить напоминания" : "Enable reminders",
-    singleReminder: locale === "ru" ? "Напоминание перед визитом, минут" : "Reminder before appointment, minutes",
+    singleReminder:
+      locale === "ru" ? "Напоминание перед визитом, минут" : "Reminder before appointment, minutes",
     singleEnabled:
-      locale === "ru"
-        ? "Использовать одно напоминание"
-        : "Use a single reminder",
+      locale === "ru" ? "Использовать одно напоминание" : "Use a single reminder",
     welcomeTemplate: locale === "ru" ? "Приветствие в начале записи" : "Welcome message",
     bookingCreatedTemplate:
       locale === "ru" ? "Подтверждение новой записи" : "Booking created message",
-    reminderTemplate:
-      locale === "ru" ? "Текст напоминания" : "Reminder message",
+    reminderTemplate: locale === "ru" ? "Текст напоминания" : "Reminder message",
     bookingRescheduledTemplate:
       locale === "ru" ? "Сообщение о переносе" : "Rescheduled booking message",
     bookingCancelledTemplate:
@@ -90,7 +102,7 @@ export default async function ProfilePage({ searchParams }: ProfilePageProps) {
     reminder_invalid:
       locale === "ru"
         ? "Время напоминания должно быть целым числом минут больше нуля"
-        : "Early reminder timing must be a whole number of minutes above zero",
+        : "Reminder timing must be a whole number of minutes above zero",
     manager_settings_unknown:
       locale === "ru"
         ? "Не удалось сохранить настройки профиля. Попробуйте ещё раз."
@@ -148,6 +160,54 @@ export default async function ProfilePage({ searchParams }: ProfilePageProps) {
       {successText ? <Feedback title={text.successTitle} text={successText} tone="success" /> : null}
 
       <section className="rounded-[2rem] border border-[color:var(--border)] bg-[color:var(--surface)] p-8 shadow-[var(--shadow-md)]">
+        <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr] xl:items-start">
+          <div>
+            <p className="text-sm uppercase tracking-[0.2em] text-[color:var(--muted)]">
+              {text.accountTitle}
+            </p>
+            <h2 className="mt-3 text-2xl font-semibold text-[color:var(--foreground)]">
+              {session?.user.name ?? settings.managerName}
+            </h2>
+            <p className="mt-3 max-w-3xl text-sm leading-7 text-[color:var(--foreground-soft)]">
+              {text.accountDescription}
+            </p>
+          </div>
+
+          <div className="rounded-[1.6rem] border border-[color:var(--border)] bg-[color:var(--surface-muted)] p-5">
+            <dl className="grid gap-3 text-sm">
+              <div className="flex items-center justify-between gap-4">
+                <dt className="text-[color:var(--muted)]">{text.email}</dt>
+                <dd className="max-w-[18rem] text-right text-[color:var(--foreground)]">
+                  {session?.user.email ?? "-"}
+                </dd>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <dt className="text-[color:var(--muted)]">{text.role}</dt>
+                <dd className="text-right text-[color:var(--foreground)]">
+                  {session?.user.role ?? settings.managerRole}
+                </dd>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <dt className="text-[color:var(--muted)]">{text.verification}</dt>
+                <dd className="text-right text-[color:var(--foreground)]">
+                  {session?.user.emailVerifiedAt ? text.verified : text.notVerified}
+                </dd>
+              </div>
+            </dl>
+
+            <form action={logoutAction} className="mt-5">
+              <button
+                type="submit"
+                className="rounded-full border border-[color:var(--border)] bg-[color:var(--surface-strong)] px-5 py-3 text-sm font-medium text-[color:var(--foreground)] transition hover:border-[color:var(--accent)] hover:text-[color:var(--accent-strong)]"
+              >
+                {text.logout}
+              </button>
+            </form>
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-[2rem] border border-[color:var(--border)] bg-[color:var(--surface)] p-8 shadow-[var(--shadow-md)]">
         <form action={updateManagerSettingsAction} className="grid gap-8 xl:grid-cols-[1fr_1fr]">
           <div className="space-y-4">
             <div>
@@ -162,7 +222,7 @@ export default async function ProfilePage({ searchParams }: ProfilePageProps) {
             </div>
 
             <div>
-              <label className="block text-sm text-[color:var(--muted)]">{text.role}</label>
+              <label className="block text-sm text-[color:var(--muted)]">{text.roleLabel}</label>
               <input
                 type="text"
                 name="managerRole"

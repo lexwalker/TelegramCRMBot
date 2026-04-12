@@ -133,7 +133,7 @@ function hasTelegramChat(lead: Lead) {
 }
 
 async function buildTemplateVariables(lead: Lead, appointment: string | null) {
-  const settings = await getBookingSettings();
+  const settings = await getBookingSettings(lead.organizationId);
   return {
     client_name: lead.name,
     service_name: lead.service?.name ?? "",
@@ -151,7 +151,7 @@ export async function notifyLeadRescheduled(lead: Lead) {
     return false;
   }
 
-  const settings = await getBookingSettings();
+  const settings = await getBookingSettings(lead.organizationId);
   const variables = await buildTemplateVariables(
     lead,
     formatAppointment(lead.appointmentAt),
@@ -171,7 +171,7 @@ export async function notifyLeadCancelled(lead: Lead, previousAppointmentAt: str
     return false;
   }
 
-  const settings = await getBookingSettings();
+  const settings = await getBookingSettings(lead.organizationId);
   const variables = await buildTemplateVariables(
     lead,
     formatAppointment(previousAppointmentAt),

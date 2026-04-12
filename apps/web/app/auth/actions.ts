@@ -1,7 +1,11 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { loginManager, registerOrganizationOwner } from "../../lib/auth";
+import {
+  clearCurrentSession,
+  loginManager,
+  registerOrganizationOwner,
+} from "../../lib/auth";
 
 function redirectWithParams(pathname: string, params: Record<string, string | null | undefined>) {
   const search = new URLSearchParams();
@@ -59,4 +63,9 @@ export async function loginAction(formData: FormData) {
   }
 
   redirect("/");
+}
+
+export async function logoutAction() {
+  await clearCurrentSession();
+  redirect("/login");
 }

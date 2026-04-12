@@ -47,6 +47,8 @@ function normalizeEnvValue(value: string | undefined) {
 process.env.CRM_BASE_URL = normalizeEnvValue(process.env.CRM_BASE_URL);
 process.env.DATABASE_URL = normalizeEnvValue(process.env.DATABASE_URL);
 process.env.SMTP_HOST = normalizeEnvValue(process.env.SMTP_HOST);
+process.env.SMTP_PORT = normalizeEnvValue(process.env.SMTP_PORT);
+process.env.SMTP_SECURE = normalizeEnvValue(process.env.SMTP_SECURE);
 process.env.SMTP_USER = normalizeEnvValue(process.env.SMTP_USER);
 process.env.SMTP_PASS = normalizeEnvValue(process.env.SMTP_PASS);
 process.env.SMTP_FROM = normalizeEnvValue(process.env.SMTP_FROM);
@@ -55,6 +57,10 @@ const SESSION_TTL_DAYS = 30;
 const EMAIL_VERIFICATION_TTL_HOURS = 24;
 const CRM_BASE_URL = process.env.CRM_BASE_URL ?? "http://localhost:3001";
 const SMTP_PORT = Number(process.env.SMTP_PORT ?? "587");
+const SMTP_SECURE =
+  process.env.SMTP_SECURE == null
+    ? SMTP_PORT === 465
+    : ["1", "true", "yes", "on"].includes(process.env.SMTP_SECURE.toLowerCase());
 const DEFAULT_ROLE = "owner";
 
 async function getPrismaClient() {
@@ -251,9 +257,22 @@ async function getMailTransport() {
   return nodemailer.createTransport({
     host: smtpHost,
     port: SMTP_PORT,
-    secure: SMTP_PORT === 465,
+    secure: SMTP_SECURE,
     auth: smtpUser && smtpPass ? { user: smtpUser, pass: smtpPass } : undefined,
   });
+}
+
+export function getSmtpConfigurationSummary() {
+  const host = normalizeEnvValue(process.env.SMTP_HOST);
+  const from = normalizeEnvValue(process.env.SMTP_FROM);
+
+  return {
+    configured: Boolean(host && from),
+    host: host ?? null,
+    port: SMTP_PORT,
+    secure: SMTP_SECURE,
+    from: from ?? null,
+  };
 }
 
 async function sendVerificationEmail(input: {
@@ -306,6 +325,48 @@ async function sendVerificationEmail(input: {
     delivered: true,
     verificationUrl: input.verificationUrl,
   };
+}
+
+export async function sendSmtpTestEmail(input: {
+  email: string;
+  name: string;
+  managerName?: string;
+}) {
+  const transport = await getMailTransport();
+  const smtpFrom = normalizeEnvValue(process.env.SMTP_FROM);
+
+  if (!transport || !smtpFrom) {
+    return { ok: false as const, code: "smtp_not_configured" };
+  }
+
+  const greetingName = input.name || "there";
+  const managerName = input.managerName || "CRM Bot";
+
+  await transport.sendMail({
+    from: smtpFrom,
+    to: input.email,
+    subject: "SMTP test from CRM Bot",
+    text: [
+      `Hello, ${greetingName}!`,
+      "",
+      "This is a test email from your CRM SMTP configuration.",
+      `Sent by: ${managerName}`,
+      `SMTP host: ${getSmtpConfigurationSummary().host ?? "unknown"}`,
+      "",
+      "If you received this message, email verification delivery is ready.",
+    ].join("\n"),
+    html: `
+      <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #141414;">
+        <p>Hello, ${greetingName}!</p>
+        <p>This is a test email from your CRM SMTP configuration.</p>
+        <p><strong>Sent by:</strong> ${managerName}</p>
+        <p><strong>SMTP host:</strong> ${getSmtpConfigurationSummary().host ?? "unknown"}</p>
+        <p>If you received this message, email verification delivery is ready.</p>
+      </div>
+    `,
+  });
+
+  return { ok: true as const };
 }
 
 async function setSessionCookie(token: string, expiresAt: Date) {

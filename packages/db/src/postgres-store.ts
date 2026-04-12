@@ -208,6 +208,7 @@ type UpdateServiceInput = {
 
 type UpdateLeadOptions = {
   actor?: LeadHistoryActor;
+  organizationId?: string | null;
 };
 
 type DatabaseShape = {
@@ -225,6 +226,7 @@ type DatabaseShape = {
 
 type AppointmentAvailabilityOptions = {
   excludeLeadId?: string | null;
+  organizationId?: string | null;
 };
 
 type FindMasterOptions = AppointmentAvailabilityOptions & {
@@ -691,6 +693,13 @@ function getDefaultOrganizationId(data: Pick<DatabaseShape, "organizations">) {
   return data.organizations[0]?.id ?? DEFAULT_ORGANIZATION_ID;
 }
 
+function resolveOrganizationId(
+  data: Pick<DatabaseShape, "organizations">,
+  organizationId?: string | null,
+) {
+  return organizationId ?? getDefaultOrganizationId(data);
+}
+
 function getOrganizationSettings(data: DatabaseShape, organizationId = getDefaultOrganizationId(data)) {
   return (
     data.settings.find((item) => item.organizationId === organizationId) ?? {
@@ -855,7 +864,7 @@ function getAvailableMastersForSlot(
 ) {
   const organizationId =
     data.services.find((service) => service.id === serviceId)?.organizationId ??
-    getDefaultOrganizationId(data);
+    resolveOrganizationId(data, options.organizationId);
   const settings = getOrganizationSettings(data, organizationId);
 
   if (!isAppointmentInFuture(appointmentAt, settings.minLeadTimeMinutes)) {
@@ -965,8 +974,7 @@ function getUpcomingDateKeys(daysAhead: number) {
   });
 }
 
-function getDefaultServiceId(data: DatabaseShape) {
-  const organizationId = getDefaultOrganizationId(data);
+function getDefaultServiceId(data: DatabaseShape, organizationId = getDefaultOrganizationId(data)) {
   return (
     getActiveServicesFromData(data).find((service) => service.organizationId === organizationId)?.id ??
     data.services.find((service) => service.organizationId === organizationId)?.id ??
@@ -974,14 +982,18 @@ function getDefaultServiceId(data: DatabaseShape) {
   );
 }
 
-function getOrganizationIdForService(data: DatabaseShape, serviceId?: string | null) {
+function getOrganizationIdForService(
+  data: DatabaseShape,
+  serviceId?: string | null,
+  fallbackOrganizationId?: string | null,
+) {
   if (!serviceId) {
-    return getDefaultOrganizationId(data);
+    return resolveOrganizationId(data, fallbackOrganizationId);
   }
 
   return (
     data.services.find((service) => service.id === serviceId)?.organizationId ??
-    getDefaultOrganizationId(data)
+    resolveOrganizationId(data, fallbackOrganizationId)
   );
 }
 
@@ -1770,33 +1782,33 @@ function rebalanceLeadsForMasterRemoval(masterId: string, data: DatabaseShape) {
   return draft;
 }
 
-export async function listMasters() {
+export async function listMasters(organizationId?: string | null) {
   const data = await readDatabase();
-  const organizationId = getDefaultOrganizationId(data);
+  const resolvedOrganizationId = resolveOrganizationId(data, organizationId);
   return [...data.masters]
-    .filter((master) => master.organizationId === organizationId)
+    .filter((master) => master.organizationId === resolvedOrganizationId)
     .sort((a, b) => a.sortOrder - b.sortOrder);
 }
 
-export async function listActiveMasters() {
+export async function listActiveMasters(organizationId?: string | null) {
   const data = await readDatabase();
-  const organizationId = getDefaultOrganizationId(data);
+  const resolvedOrganizationId = resolveOrganizationId(data, organizationId);
   return getActiveMastersFromData(data).filter(
-    (master) => master.organizationId === organizationId,
+    (master) => master.organizationId === resolvedOrganizationId,
   );
 }
 
-export async function getMasterById(id: string) {
+export async function getMasterById(id: string, organizationId?: string | null) {
   const data = await readDatabase();
-  const organizationId = getDefaultOrganizationId(data);
+  const resolvedOrganizationId = resolveOrganizationId(data, organizationId);
   return (
     data.masters.find(
-      (master) => master.id === id && master.organizationId === organizationId,
+      (master) => master.id === id && master.organizationId === resolvedOrganizationId,
     ) ?? null
   );
 }
 
-export async function createMaster(name: string) {
+export async function createMaster(name: string, organizationId?: string | null) {
   const trimmedName = name.trim();
 
   if (!trimmedName) {
@@ -1804,15 +1816,15 @@ export async function createMaster(name: string) {
   }
 
   const data = await readDatabase();
-  const organizationId = getDefaultOrganizationId(data);
+  const resolvedOrganizationId = resolveOrganizationId(data, organizationId);
   const master: Master = {
     id: createId("master"),
-    organizationId,
+    organizationId: resolvedOrganizationId,
     name: trimmedName,
     isActive: true,
     sortOrder:
       data.masters
-        .filter((item) => item.organizationId === organizationId)
+        .filter((item) => item.organizationId === resolvedOrganizationId)
         .reduce((max, item) => Math.max(max, item.sortOrder), 0) + 1,
     weeklySchedule: createDefaultWeeklySchedule(),
   };
@@ -1822,7 +1834,11 @@ export async function createMaster(name: string) {
   return master;
 }
 
-export async function updateMaster(id: string, input: UpdateMasterInput) {
+export async function updateMaster(
+  id: string,
+  input: UpdateMasterInput,
+  organizationId?: string | null,
+) {
   const trimmedName = input.name.trim();
 
   if (!trimmedName) {
@@ -1830,9 +1846,9 @@ export async function updateMaster(id: string, input: UpdateMasterInput) {
   }
 
   let data = await readDatabase();
-  const organizationId = getDefaultOrganizationId(data);
+  const resolvedOrganizationId = resolveOrganizationId(data, organizationId);
   const master = data.masters.find(
-    (item) => item.id === id && item.organizationId === organizationId,
+    (item) => item.id === id && item.organizationId === resolvedOrganizationId,
   );
 
   if (!master) {
@@ -1846,7 +1862,7 @@ export async function updateMaster(id: string, input: UpdateMasterInput) {
   }
 
   const nextMaster = data.masters.find(
-    (item) => item.id === id && item.organizationId === organizationId,
+    (item) => item.id === id && item.organizationId === resolvedOrganizationId,
   );
 
   if (!nextMaster) {
@@ -1860,11 +1876,11 @@ export async function updateMaster(id: string, input: UpdateMasterInput) {
   return nextMaster;
 }
 
-export async function deleteMaster(id: string) {
+export async function deleteMaster(id: string, organizationId?: string | null) {
   let data = await readDatabase();
-  const organizationId = getDefaultOrganizationId(data);
+  const resolvedOrganizationId = resolveOrganizationId(data, organizationId);
   const master = data.masters.find(
-    (item) => item.id === id && item.organizationId === organizationId,
+    (item) => item.id === id && item.organizationId === resolvedOrganizationId,
   );
 
   if (!master) {
@@ -1872,7 +1888,7 @@ export async function deleteMaster(id: string) {
   }
 
   const activeMastersCount = getActiveMastersFromData(data).filter(
-    (item) => item.organizationId === organizationId,
+    (item) => item.organizationId === resolvedOrganizationId,
   ).length;
 
   if (master.isActive && activeMastersCount <= 1) {
@@ -1884,30 +1900,33 @@ export async function deleteMaster(id: string) {
   }
 
   data.masters = data.masters.filter(
-    (item) => item.id !== id || item.organizationId !== organizationId,
+    (item) => item.id !== id || item.organizationId !== resolvedOrganizationId,
   );
   data.leads = data.leads.map((lead) =>
-    lead.masterId === id && lead.organizationId === organizationId
+    lead.masterId === id && lead.organizationId === resolvedOrganizationId
       ? { ...lead, masterId: null }
       : lead,
   );
   await writeDatabase(data);
 }
 
-export async function listServices() {
+export async function listServices(organizationId?: string | null) {
   const data = await readDatabase();
-  const organizationId = getDefaultOrganizationId(data);
+  const resolvedOrganizationId = resolveOrganizationId(data, organizationId);
   return [...data.services]
-    .filter((service) => service.organizationId === organizationId)
+    .filter((service) => service.organizationId === resolvedOrganizationId)
     .sort((a, b) => a.sortOrder - b.sortOrder);
 }
 
-export async function getBookingSettings() {
+export async function getBookingSettings(organizationId?: string | null) {
   const data = await readDatabase();
-  return { ...getOrganizationSettings(data, getDefaultOrganizationId(data)) };
+  return { ...getOrganizationSettings(data, resolveOrganizationId(data, organizationId)) };
 }
 
-export async function updateBookingSettings(input: Partial<BookingSettings>) {
+export async function updateBookingSettings(
+  input: Partial<BookingSettings>,
+  organizationId?: string | null,
+) {
   if (
     input.minLeadTimeMinutes != null &&
     (!Number.isFinite(input.minLeadTimeMinutes) || input.minLeadTimeMinutes < 0)
@@ -1930,34 +1949,37 @@ export async function updateBookingSettings(input: Partial<BookingSettings>) {
   }
 
   const data = await readDatabase();
-  const organizationId = getDefaultOrganizationId(data);
-  const currentSettings = getOrganizationSettings(data, organizationId);
+  const resolvedOrganizationId = resolveOrganizationId(data, organizationId);
+  const currentSettings = getOrganizationSettings(data, resolvedOrganizationId);
   const nextSettings = normalizeBookingSettings({
     ...currentSettings,
     ...input,
   });
   const existingSettings = data.settings.find(
-    (item) => item.organizationId === organizationId,
+    (item) => item.organizationId === resolvedOrganizationId,
   );
 
   if (existingSettings) {
-    Object.assign(existingSettings, { organizationId, ...nextSettings });
+    Object.assign(existingSettings, { organizationId: resolvedOrganizationId, ...nextSettings });
   } else {
-    data.settings.push({ organizationId, ...nextSettings });
+    data.settings.push({ organizationId: resolvedOrganizationId, ...nextSettings });
   }
   await writeDatabase(data);
   return { ...nextSettings };
 }
 
-export async function listActiveServices() {
+export async function listActiveServices(organizationId?: string | null) {
   const data = await readDatabase();
-  const organizationId = getDefaultOrganizationId(data);
+  const resolvedOrganizationId = resolveOrganizationId(data, organizationId);
   return getActiveServicesFromData(data).filter(
-    (service) => service.organizationId === organizationId,
+    (service) => service.organizationId === resolvedOrganizationId,
   );
 }
 
-export async function createService(input: UpdateServiceInput) {
+export async function createService(
+  input: UpdateServiceInput,
+  organizationId?: string | null,
+) {
   const trimmedName = input.name.trim();
 
   if (!trimmedName) {
@@ -1969,17 +1991,17 @@ export async function createService(input: UpdateServiceInput) {
   }
 
   const data = await readDatabase();
-  const organizationId = getDefaultOrganizationId(data);
+  const resolvedOrganizationId = resolveOrganizationId(data, organizationId);
   const service: Service = {
     id: createId("service"),
-    organizationId,
+    organizationId: resolvedOrganizationId,
     name: trimmedName,
     durationMinutes: input.durationMinutes,
     price: typeof input.price === "number" && Number.isFinite(input.price) ? input.price : null,
     isActive: input.isActive,
     sortOrder:
       data.services
-        .filter((item) => item.organizationId === organizationId)
+        .filter((item) => item.organizationId === resolvedOrganizationId)
         .reduce((max, item) => Math.max(max, item.sortOrder), 0) + 1,
   };
 
@@ -1988,7 +2010,11 @@ export async function createService(input: UpdateServiceInput) {
   return service;
 }
 
-export async function updateService(id: string, input: UpdateServiceInput) {
+export async function updateService(
+  id: string,
+  input: UpdateServiceInput,
+  organizationId?: string | null,
+) {
   const trimmedName = input.name.trim();
 
   if (!trimmedName) {
@@ -2000,9 +2026,9 @@ export async function updateService(id: string, input: UpdateServiceInput) {
   }
 
   const data = await readDatabase();
-  const organizationId = getDefaultOrganizationId(data);
+  const resolvedOrganizationId = resolveOrganizationId(data, organizationId);
   const service = data.services.find(
-    (item) => item.id === id && item.organizationId === organizationId,
+    (item) => item.id === id && item.organizationId === resolvedOrganizationId,
   );
 
   if (!service) {
@@ -2011,7 +2037,7 @@ export async function updateService(id: string, input: UpdateServiceInput) {
 
   if (service.isActive && !input.isActive) {
     const activeServicesCount = getActiveServicesFromData(data).filter(
-      (item) => item.organizationId === organizationId,
+      (item) => item.organizationId === resolvedOrganizationId,
     ).length;
 
     if (activeServicesCount <= 1) {
@@ -2027,23 +2053,23 @@ export async function updateService(id: string, input: UpdateServiceInput) {
   return service;
 }
 
-export async function deleteService(id: string) {
+export async function deleteService(id: string, organizationId?: string | null) {
   const data = await readDatabase();
-  const organizationId = getDefaultOrganizationId(data);
+  const resolvedOrganizationId = resolveOrganizationId(data, organizationId);
   const service = data.services.find(
-    (item) => item.id === id && item.organizationId === organizationId,
+    (item) => item.id === id && item.organizationId === resolvedOrganizationId,
   );
 
   if (!service) {
     throw new Error("Service not found");
   }
 
-  if (data.leads.some((lead) => lead.serviceId === id && lead.organizationId === organizationId)) {
+  if (data.leads.some((lead) => lead.serviceId === id && lead.organizationId === resolvedOrganizationId)) {
     throw new Error("Service has leads");
   }
 
   const activeServicesCount = getActiveServicesFromData(data).filter(
-    (item) => item.organizationId === organizationId,
+    (item) => item.organizationId === resolvedOrganizationId,
   ).length;
 
   if (service.isActive && activeServicesCount <= 1) {
@@ -2051,7 +2077,7 @@ export async function deleteService(id: string) {
   }
 
   data.services = data.services.filter(
-    (item) => item.id !== id || item.organizationId !== organizationId,
+    (item) => item.id !== id || item.organizationId !== resolvedOrganizationId,
   );
   await writeDatabase(data);
 }
@@ -2063,17 +2089,26 @@ export async function listAvailableMastersForAppointment(
   const data = await readDatabase();
   return getAvailableMastersForSlot(appointmentAt, options.serviceId ?? null, data, {
     excludeLeadId: options.excludeLeadId,
+    organizationId: options.organizationId,
   });
 }
 
-export async function listDayTimeSlots(dateKey: string, serviceId?: string | null) {
+export async function listDayTimeSlots(
+  dateKey: string,
+  serviceId?: string | null,
+  organizationId?: string | null,
+) {
   const data = await readDatabase();
-  const organizationId = getOrganizationIdForService(data, serviceId ?? null);
+  const resolvedOrganizationId = getOrganizationIdForService(
+    data,
+    serviceId ?? null,
+    organizationId,
+  );
   return listPotentialStartTimes(
     dateKey,
     getServiceDurationMinutes(serviceId ?? null, data),
     data,
-    organizationId,
+    resolvedOrganizationId,
   );
 }
 
@@ -2084,11 +2119,16 @@ export async function listAvailableTimeSlotsForDate(
 ) {
   const data = await readDatabase();
   const durationMinutes = getServiceDurationMinutes(serviceId ?? null, data);
-  const organizationId = getOrganizationIdForService(data, serviceId ?? null);
+  const organizationId = getOrganizationIdForService(
+    data,
+    serviceId ?? null,
+    options.organizationId,
+  );
 
   return listPotentialStartTimes(dateKey, durationMinutes, data, organizationId).filter((time) =>
     getFirstFreeMasterForSlot(`${dateKey}T${time}:00+03:00`, serviceId ?? null, data, {
       excludeLeadId: options.excludeLeadId,
+      organizationId,
     }) !== null,
   );
 }
@@ -2115,21 +2155,22 @@ export async function listAvailableDateKeys(
   return availableDateKeys;
 }
 
-export async function listLeads() {
+export async function listLeads(organizationId?: string | null) {
   const data = await readDatabase();
-  const organizationId = getDefaultOrganizationId(data);
+  const resolvedOrganizationId = resolveOrganizationId(data, organizationId);
 
   return [...data.leads]
-    .filter((lead) => lead.organizationId === organizationId)
+    .filter((lead) => lead.organizationId === resolvedOrganizationId)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
     .map((lead) => mapLead(lead, data));
 }
 
-export async function listCustomers() {
+export async function listCustomers(organizationId?: string | null) {
   const data = await readDatabase();
+  const resolvedOrganizationId = resolveOrganizationId(data, organizationId);
   const grouped = groupLeadRecordsByCustomer({
     ...data,
-    leads: data.leads.filter((lead) => lead.organizationId === getDefaultOrganizationId(data)),
+    leads: data.leads.filter((lead) => lead.organizationId === resolvedOrganizationId),
   });
 
   return [...grouped.entries()]
@@ -2137,11 +2178,15 @@ export async function listCustomers() {
     .sort((a, b) => b.lastLeadAt.localeCompare(a.lastLeadAt));
 }
 
-export async function getCustomerById(id: string) {
+export async function getCustomerById(
+  id: string,
+  organizationId?: string | null,
+) {
   const data = await readDatabase();
+  const resolvedOrganizationId = resolveOrganizationId(data, organizationId);
   const grouped = groupLeadRecordsByCustomer({
     ...data,
-    leads: data.leads.filter((lead) => lead.organizationId === getDefaultOrganizationId(data)),
+    leads: data.leads.filter((lead) => lead.organizationId === resolvedOrganizationId),
   });
   const rows = grouped.get(id);
 
@@ -2171,7 +2216,11 @@ export async function getCustomerById(id: string) {
   };
 }
 
-export async function addCustomerNote(customerId: string, text: string) {
+export async function addCustomerNote(
+  customerId: string,
+  text: string,
+  organizationId?: string | null,
+) {
   const trimmedText = text.trim();
 
   if (!trimmedText) {
@@ -2179,7 +2228,11 @@ export async function addCustomerNote(customerId: string, text: string) {
   }
 
   const data = await readDatabase();
-  const grouped = groupLeadRecordsByCustomer(data);
+  const resolvedOrganizationId = resolveOrganizationId(data, organizationId);
+  const grouped = groupLeadRecordsByCustomer({
+    ...data,
+    leads: data.leads.filter((lead) => lead.organizationId === resolvedOrganizationId),
+  });
 
   if (!grouped.has(customerId)) {
     throw new Error("Customer not found");
@@ -2187,7 +2240,8 @@ export async function addCustomerNote(customerId: string, text: string) {
 
   const note: CustomerNote = {
     id: createId("customer_note"),
-    organizationId: grouped.get(customerId)?.[0]?.organizationId ?? getDefaultOrganizationId(data),
+    organizationId:
+      grouped.get(customerId)?.[0]?.organizationId ?? resolvedOrganizationId,
     customerId,
     text: trimmedText,
     createdAt: nowIso(),
@@ -2198,11 +2252,11 @@ export async function addCustomerNote(customerId: string, text: string) {
   return note;
 }
 
-export async function getLeadById(id: string) {
+export async function getLeadById(id: string, organizationId?: string | null) {
   const data = await readDatabase();
-  const organizationId = getDefaultOrganizationId(data);
+  const resolvedOrganizationId = resolveOrganizationId(data, organizationId);
   const lead = data.leads.find(
-    (item) => item.id === id && item.organizationId === organizationId,
+    (item) => item.id === id && item.organizationId === resolvedOrganizationId,
   );
 
   return lead ? mapLead(lead, data) : null;
@@ -2216,6 +2270,7 @@ export async function isAppointmentSlotAvailable(
   return (
     getFirstFreeMasterForSlot(appointmentAt, options.serviceId ?? null, data, {
       excludeLeadId: options.excludeLeadId,
+      organizationId: options.organizationId,
     }) !== null
   );
 }
@@ -2232,7 +2287,7 @@ export async function createLead(input: CreateLeadInput) {
         service.id === input.serviceId && service.organizationId === organizationId,
     )
       ? input.serviceId
-      : getDefaultServiceId(data);
+      : getDefaultServiceId(data, organizationId);
 
   if (input.serviceId && !serviceId) {
     throw new Error("Service is not available");
@@ -2300,7 +2355,7 @@ export async function updateLeadStatus(
   options: UpdateLeadOptions = {},
 ) {
   const data = await readDatabase();
-  const organizationId = getDefaultOrganizationId(data);
+  const organizationId = resolveOrganizationId(data, options.organizationId);
   const timestamp = nowIso();
   const lead = data.leads.find(
     (item) => item.id === id && item.organizationId === organizationId,
@@ -2383,7 +2438,7 @@ export async function addLeadNote(
   options: UpdateLeadOptions = {},
 ) {
   const data = await readDatabase();
-  const organizationId = getDefaultOrganizationId(data);
+  const organizationId = resolveOrganizationId(data, options.organizationId);
   const lead = data.leads.find(
     (item) => item.id === leadId && item.organizationId === organizationId,
   );
@@ -2421,7 +2476,7 @@ export async function updateLeadAppointment(
   options: UpdateLeadOptions = {},
 ) {
   const data = await readDatabase();
-  const organizationId = getDefaultOrganizationId(data);
+  const organizationId = resolveOrganizationId(data, options.organizationId);
   const timestamp = nowIso();
   const lead = data.leads.find(
     (item) => item.id === leadId && item.organizationId === organizationId,
@@ -2507,7 +2562,7 @@ export async function updateLeadService(
   options: UpdateLeadOptions = {},
 ) {
   const data = await readDatabase();
-  const organizationId = getDefaultOrganizationId(data);
+  const organizationId = resolveOrganizationId(data, options.organizationId);
   const lead = data.leads.find(
     (item) => item.id === leadId && item.organizationId === organizationId,
   );
@@ -2568,7 +2623,7 @@ export async function updateLeadMaster(
   options: UpdateLeadOptions = {},
 ) {
   const data = await readDatabase();
-  const organizationId = getDefaultOrganizationId(data);
+  const organizationId = resolveOrganizationId(data, options.organizationId);
   const lead = data.leads.find(
     (item) => item.id === leadId && item.organizationId === organizationId,
   );
@@ -2725,9 +2780,9 @@ export async function markReminderSent(
   return mapLead(lead, data);
 }
 
-export async function getMonthlyRevenue(date = new Date()) {
+export async function getMonthlyRevenue(date = new Date(), organizationId?: string | null) {
   const data = await readDatabase();
-  const organizationId = getDefaultOrganizationId(data);
+  const resolvedOrganizationId = resolveOrganizationId(data, organizationId);
   const month = new Intl.DateTimeFormat("sv-SE", {
     timeZone: "Europe/Moscow",
     year: "numeric",
@@ -2735,7 +2790,7 @@ export async function getMonthlyRevenue(date = new Date()) {
   }).format(date);
 
   return data.leads.reduce((sum, lead) => {
-    if (lead.organizationId !== organizationId) {
+    if (lead.organizationId !== resolvedOrganizationId) {
       return sum;
     }
     if (lead.status !== "DONE" || lead.finalPrice == null || !lead.completedAt) {
@@ -2752,20 +2807,25 @@ export async function getMonthlyRevenue(date = new Date()) {
   }, 0);
 }
 
-export async function countLeads() {
+export async function countLeads(organizationId?: string | null) {
   const data = await readDatabase();
-  return data.leads.filter((lead) => lead.organizationId === getDefaultOrganizationId(data)).length;
+  const resolvedOrganizationId = resolveOrganizationId(data, organizationId);
+  return data.leads.filter((lead) => lead.organizationId === resolvedOrganizationId).length;
 }
 
-export async function listLeadsAffectingSlot(dateKey: string, time: string) {
+export async function listLeadsAffectingSlot(
+  dateKey: string,
+  time: string,
+  organizationId?: string | null,
+) {
   const data = await readDatabase();
-  const organizationId = getDefaultOrganizationId(data);
+  const resolvedOrganizationId = resolveOrganizationId(data, organizationId);
   const slotStart = timeToMinutes(time);
 
   return data.leads
     .filter(
       (lead) =>
-        lead.organizationId === organizationId &&
+        lead.organizationId === resolvedOrganizationId &&
         getLeadOverlappingSlot(lead, dateKey, slotStart, data),
     )
     .map((lead) => mapLead(lead, data));

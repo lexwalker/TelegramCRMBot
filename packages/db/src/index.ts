@@ -56,76 +56,96 @@ export async function ensureDatabase() {
   return usePostgres ? postgresStore.ensureDatabase() : Promise.resolve(jsonStore.ensureDatabase());
 }
 
-export async function listMasters() {
-  return usePostgres ? postgresStore.listMasters() : Promise.resolve(jsonStore.listMasters());
-}
-
-export async function listActiveMasters() {
+export async function listMasters(organizationId?: string | null) {
   return usePostgres
-    ? postgresStore.listActiveMasters()
-    : Promise.resolve(jsonStore.listActiveMasters());
+    ? postgresStore.listMasters(organizationId)
+    : Promise.resolve(jsonStore.listMasters(organizationId));
 }
 
-export async function getMasterById(id: string) {
-  return usePostgres ? postgresStore.getMasterById(id) : Promise.resolve(jsonStore.getMasterById(id));
+export async function listActiveMasters(organizationId?: string | null) {
+  return usePostgres
+    ? postgresStore.listActiveMasters(organizationId)
+    : Promise.resolve(jsonStore.listActiveMasters(organizationId));
 }
 
-export async function createMaster(name: string) {
-  return usePostgres ? postgresStore.createMaster(name) : Promise.resolve(jsonStore.createMaster(name));
+export async function getMasterById(id: string, organizationId?: string | null) {
+  return usePostgres
+    ? postgresStore.getMasterById(id, organizationId)
+    : Promise.resolve(jsonStore.getMasterById(id, organizationId));
+}
+
+export async function createMaster(name: string, organizationId?: string | null) {
+  return usePostgres
+    ? postgresStore.createMaster(name, organizationId)
+    : Promise.resolve(jsonStore.createMaster(name, organizationId));
 }
 
 export async function updateMaster(
   id: string,
   input: Parameters<typeof jsonStore.updateMaster>[1],
+  organizationId?: string | null,
 ) {
   return usePostgres
-    ? postgresStore.updateMaster(id, input)
-    : Promise.resolve(jsonStore.updateMaster(id, input));
+    ? postgresStore.updateMaster(id, input, organizationId)
+    : Promise.resolve(jsonStore.updateMaster(id, input, organizationId));
 }
 
-export async function deleteMaster(id: string) {
-  return usePostgres ? postgresStore.deleteMaster(id) : Promise.resolve(jsonStore.deleteMaster(id));
-}
-
-export async function listServices() {
-  return usePostgres ? postgresStore.listServices() : Promise.resolve(jsonStore.listServices());
-}
-
-export async function getBookingSettings() {
+export async function deleteMaster(id: string, organizationId?: string | null) {
   return usePostgres
-    ? postgresStore.getBookingSettings()
-    : Promise.resolve(jsonStore.getBookingSettings());
+    ? postgresStore.deleteMaster(id, organizationId)
+    : Promise.resolve(jsonStore.deleteMaster(id, organizationId));
 }
 
-export async function updateBookingSettings(input: Parameters<typeof jsonStore.updateBookingSettings>[0]) {
+export async function listServices(organizationId?: string | null) {
   return usePostgres
-    ? postgresStore.updateBookingSettings(input)
-    : Promise.resolve(jsonStore.updateBookingSettings(input));
+    ? postgresStore.listServices(organizationId)
+    : Promise.resolve(jsonStore.listServices(organizationId));
 }
 
-export async function listActiveServices() {
+export async function getBookingSettings(organizationId?: string | null) {
   return usePostgres
-    ? postgresStore.listActiveServices()
-    : Promise.resolve(jsonStore.listActiveServices());
+    ? postgresStore.getBookingSettings(organizationId)
+    : Promise.resolve(jsonStore.getBookingSettings(organizationId));
 }
 
-export async function createService(input: Parameters<typeof jsonStore.createService>[0]) {
+export async function updateBookingSettings(
+  input: Parameters<typeof jsonStore.updateBookingSettings>[0],
+  organizationId?: string | null,
+) {
   return usePostgres
-    ? postgresStore.createService(input)
-    : Promise.resolve(jsonStore.createService(input));
+    ? postgresStore.updateBookingSettings(input, organizationId)
+    : Promise.resolve(jsonStore.updateBookingSettings(input, organizationId));
+}
+
+export async function listActiveServices(organizationId?: string | null) {
+  return usePostgres
+    ? postgresStore.listActiveServices(organizationId)
+    : Promise.resolve(jsonStore.listActiveServices(organizationId));
+}
+
+export async function createService(
+  input: Parameters<typeof jsonStore.createService>[0],
+  organizationId?: string | null,
+) {
+  return usePostgres
+    ? postgresStore.createService(input, organizationId)
+    : Promise.resolve(jsonStore.createService(input, organizationId));
 }
 
 export async function updateService(
   id: string,
   input: Parameters<typeof jsonStore.updateService>[1],
+  organizationId?: string | null,
 ) {
   return usePostgres
-    ? postgresStore.updateService(id, input)
-    : Promise.resolve(jsonStore.updateService(id, input));
+    ? postgresStore.updateService(id, input, organizationId)
+    : Promise.resolve(jsonStore.updateService(id, input, organizationId));
 }
 
-export async function deleteService(id: string) {
-  return usePostgres ? postgresStore.deleteService(id) : Promise.resolve(jsonStore.deleteService(id));
+export async function deleteService(id: string, organizationId?: string | null) {
+  return usePostgres
+    ? postgresStore.deleteService(id, organizationId)
+    : Promise.resolve(jsonStore.deleteService(id, organizationId));
 }
 
 export async function listAvailableMastersForAppointment(
@@ -137,10 +157,14 @@ export async function listAvailableMastersForAppointment(
     : Promise.resolve(jsonStore.listAvailableMastersForAppointment(appointmentAt, options));
 }
 
-export async function listDayTimeSlots(dateKey: string, serviceId?: string | null) {
+export async function listDayTimeSlots(
+  dateKey: string,
+  serviceId?: string | null,
+  organizationId?: string | null,
+) {
   return usePostgres
-    ? postgresStore.listDayTimeSlots(dateKey, serviceId)
-    : Promise.resolve(jsonStore.listDayTimeSlots(dateKey, serviceId));
+    ? postgresStore.listDayTimeSlots(dateKey, serviceId, organizationId)
+    : Promise.resolve(jsonStore.listDayTimeSlots(dateKey, serviceId, organizationId));
 }
 
 export async function listAvailableTimeSlotsForDate(
@@ -163,26 +187,38 @@ export async function listAvailableDateKeys(
     : Promise.resolve(jsonStore.listAvailableDateKeys(daysAhead, serviceId, options));
 }
 
-export async function listLeads() {
-  return usePostgres ? postgresStore.listLeads() : Promise.resolve(jsonStore.listLeads());
-}
-
-export async function listCustomers() {
-  return usePostgres ? postgresStore.listCustomers() : Promise.resolve(jsonStore.listCustomers());
-}
-
-export async function getCustomerById(id: string) {
-  return usePostgres ? postgresStore.getCustomerById(id) : Promise.resolve(jsonStore.getCustomerById(id));
-}
-
-export async function addCustomerNote(customerId: string, text: string) {
+export async function listLeads(organizationId?: string | null) {
   return usePostgres
-    ? postgresStore.addCustomerNote(customerId, text)
-    : Promise.resolve(jsonStore.addCustomerNote(customerId, text));
+    ? postgresStore.listLeads(organizationId)
+    : Promise.resolve(jsonStore.listLeads(organizationId));
 }
 
-export async function getLeadById(id: string) {
-  return usePostgres ? postgresStore.getLeadById(id) : Promise.resolve(jsonStore.getLeadById(id));
+export async function listCustomers(organizationId?: string | null) {
+  return usePostgres
+    ? postgresStore.listCustomers(organizationId)
+    : Promise.resolve(jsonStore.listCustomers(organizationId));
+}
+
+export async function getCustomerById(id: string, organizationId?: string | null) {
+  return usePostgres
+    ? postgresStore.getCustomerById(id, organizationId)
+    : Promise.resolve(jsonStore.getCustomerById(id, organizationId));
+}
+
+export async function addCustomerNote(
+  customerId: string,
+  text: string,
+  organizationId?: string | null,
+) {
+  return usePostgres
+    ? postgresStore.addCustomerNote(customerId, text, organizationId)
+    : Promise.resolve(jsonStore.addCustomerNote(customerId, text, organizationId));
+}
+
+export async function getLeadById(id: string, organizationId?: string | null) {
+  return usePostgres
+    ? postgresStore.getLeadById(id, organizationId)
+    : Promise.resolve(jsonStore.getLeadById(id, organizationId));
 }
 
 export async function isAppointmentSlotAvailable(
@@ -277,18 +313,24 @@ export async function markReminderSent(
     : Promise.resolve(jsonStore.markReminderSent(leadId, kind, options));
 }
 
-export async function getMonthlyRevenue(date = new Date()) {
+export async function getMonthlyRevenue(date = new Date(), organizationId?: string | null) {
   return usePostgres
-    ? postgresStore.getMonthlyRevenue(date)
-    : Promise.resolve(jsonStore.getMonthlyRevenue(date));
+    ? postgresStore.getMonthlyRevenue(date, organizationId)
+    : Promise.resolve(jsonStore.getMonthlyRevenue(date, organizationId));
 }
 
-export async function countLeads() {
-  return usePostgres ? postgresStore.countLeads() : Promise.resolve(jsonStore.countLeads());
+export async function countLeads(organizationId?: string | null) {
+  return usePostgres
+    ? postgresStore.countLeads(organizationId)
+    : Promise.resolve(jsonStore.countLeads(organizationId));
 }
 
-export async function listLeadsAffectingSlot(dateKey: string, time: string) {
+export async function listLeadsAffectingSlot(
+  dateKey: string,
+  time: string,
+  organizationId?: string | null,
+) {
   return usePostgres
-    ? postgresStore.listLeadsAffectingSlot(dateKey, time)
-    : Promise.resolve(jsonStore.listLeadsAffectingSlot(dateKey, time));
+    ? postgresStore.listLeadsAffectingSlot(dateKey, time, organizationId)
+    : Promise.resolve(jsonStore.listLeadsAffectingSlot(dateKey, time, organizationId));
 }
