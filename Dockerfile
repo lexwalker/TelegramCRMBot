@@ -15,6 +15,7 @@ COPY packages/db/package.json packages/db/package.json
 COPY packages/db/prisma packages/db/prisma
 
 RUN pnpm install --frozen-lockfile
+RUN pnpm --filter @crm-bot/db run prisma:generate
 
 COPY . .
 
